@@ -1,0 +1,20 @@
+Q_PLUGIN=${Q_PLUGIN:-"ml2"}
+Q_AGENT=${Q_AGENT:-""}
+Q_ML2_PLUGIN_MECHANISM_DRIVERS=${Q_ML2_PLUGIN_MECHANISM_DRIVERS:-ovn,logger}
+Q_ML2_PLUGIN_TYPE_DRIVERS=${Q_ML2_PLUGIN_TYPE_DRIVERS:-local,flat,vlan,geneve}
+Q_ML2_TENANT_NETWORK_TYPE=${Q_ML2_TENANT_NETWORK_TYPE:-"geneve"}
+Q_ML2_PLUGIN_GENEVE_TYPE_OPTIONS=${Q_ML2_PLUGIN_GENEVE_TYPE_OPTIONS:-"vni_ranges=1:65536"}
+
+# Whether to enable using OVN's L3 functionality. If this value is disabled,
+# OpenStack will use q-l3 functionality.
+OVN_L3_MODE=$(trueorfalse True OVN_L3_MODE)
+if [[ "$OVN_L3_MODE" == "True" ]]; then
+    ML2_L3_PLUGIN="networking_ovn.l3.l3_ovn.OVNL3RouterPlugin"
+fi
+
+# This function is invoked by DevStack's Neutron plugin setup
+# code and is being overridden here since the OVN devstack
+# plugin will handle the install.
+function neutron_plugin_install_agent_packages {
+    :
+}

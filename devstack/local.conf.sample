@@ -1,0 +1,136 @@
+#
+# Sample DevStack local.conf.
+#
+# This sample file is intended to be used for your typical DevStack environment
+# that's running all of OpenStack on a single host.  This can also be used as
+# the first host of a multi-host test environment.
+#
+# No changes to this sample configuration are required for this to work.
+#
+
+[[local|localrc]]
+
+DATABASE_PASSWORD=password
+RABBIT_PASSWORD=password
+SERVICE_PASSWORD=password
+SERVICE_TOKEN=password
+ADMIN_PASSWORD=password
+
+# The DevStack plugin defaults to using the ovn branch from the official ovs
+# repo.  You can optionally use a different one.  For example, you may want to
+# use the latest patches in blp's ovn branch:
+#OVN_REPO=http://github.com/blp/ovs-reviews.git
+#OVN_BRANCH=ovn
+
+enable_plugin networking-ovn http://git.openstack.org/openstack/networking-ovn
+enable_service ovn-northd
+enable_service ovn-controller
+
+# Use Neutron instead of nova-network
+disable_service n-net
+enable_service q-svc
+
+# OVN currently uses the conventional DHCP and metadata agents. For
+# single-node deployments, enable them on the controller node. For
+# multi-node deployments, consider disabling them on the controller
+# node and enabling them on the compute node(s) to provide a more
+# realistic environment. For more information, see
+# computenode-local.conf.sample.
+enable_service q-dhcp
+enable_service q-meta
+
+# We have to disable the neutron L2 agent. OVN does not use the L2 agent.
+disable_service q-agt
+
+# How to connect to ovsdb-server hosting the OVN NB database.
+#OVN_NB_REMOTE=tcp:$SERVICE_HOST:6641
+
+# How to connect to ovsdb-server hosting the OVN SB database.
+#OVN_SB_REMOTE=tcp:$SERVICE_HOST:6642
+
+# A UUID to uniquely identify this system.  If one is not specified, a random
+# one will be generated and saved in the file 'ovn-uuid' for re-use in future
+# DevStack runs.
+#OVN_UUID=
+
+# Whether to enable using OVN's L3 functionality. If this value is disabled,
+# OpenStack will use the q-l3 functionality.  If you set OVN_L3_MODE to False,
+# you must also enable the q-l3 service.
+# By default OVN_L3_MODE is True
+#OVN_L3_MODE=False
+#enable_service q-l3
+disable_service q-l3
+
+# Whether or not to build custom openvswitch kernel modules from the ovs git
+# tree. This is enabled by default.  This is required unless your distro kernel
+# includes ovs+conntrack support.  This support was first released in Linux 4.3,
+# and will likely be backported by some distros.
+#OVN_BUILD_MODULES=False
+
+# If you enable the DHCP agent, configure it to provide a route for
+# metadata to instances.
+ENABLE_ISOLATED_METADATA=True
+
+# Enable QoS
+#enable_plugin neutron http://git.openstack.org/openstack/neutron
+#enable_service q-qos
+
+# Skydive
+#enable_plugin skydive https://github.com/redhat-cip/skydive.git
+#enable_service skydive-analyzer
+#enable_service skydive-agent
+
+# If you want to enable a provider network instead of the default private
+# network after your DevStack environment installation, you *must* set
+# the Q_USE_PROVIDER_NETWORKING to True, and also give FIXED_RANGE,
+# NETWORK_GATEWAY and ALLOCATION_POOL option to the correct value that can
+# be used in your enviroment. Specifying Q_AGENT is needed to allow devstack
+# to run various "ip link set" and "ovs-vsctl" commands for the provider
+# network setup.
+#Q_AGENT=openvswitch
+#Q_USE_PROVIDER_NETWORKING=True
+#PHYSICAL_NETWORK=providernet
+#PROVIDER_NETWORK_TYPE=flat
+#PUBLIC_INTERFACE=<public interface>
+#OVS_PHYSICAL_BRIDGE=br-provider
+#PROVIDER_SUBNET_NAME=provider-subnet
+# use the following for IPv4
+#IP_VERSION=4
+#FIXED_RANGE=<CIDR for the Provider Network>
+#NETWORK_GATEWAY=<Provider Network Gateway>
+#ALLOCATION_POOL=<Provider Network Allocation Pool>
+# use the following for IPv4+IPv6
+#IP_VERSION=4+6
+#FIXED_RANGE=<CIDR for the Provider Network>
+#NETWORK_GATEWAY=<Provider Network Gateway>
+#ALLOCATION_POOL=<Provider Network Allocation Pool>
+# IPV6_PROVIDER_FIXED_RANGE=<v6 CDIR for the Provider Network>
+# IPV6_PROVIDER_NETWORK_GATEWAY=<v6 Gateway for the Provider Network>
+
+# If you wish to use the provider network for public access to the cloud,
+# set the following
+#Q_USE_PROVIDERNET_FOR_PUBLIC=True
+#PUBLIC_NETWORK_NAME=<Provider network name>
+#PUBLIC_NETWORK_GATEWAY=<Provider network gateway>
+#PUBLIC_PHYSICAL_NETWORK=<Provider network name>
+#IP_VERSION=4
+#PUBLIC_SUBNET_NAME=<provider subnet name>
+#Q_FLOATING_ALLOCATION_POOL=<Provider Network Allocation Pool>
+#FLOATING_RANGE=<CIDR for the Provider Network>
+
+# NOTE: DO NOT MOVE THESE SECTIONS FROM THE END OF THIS FILE
+# IF YOU DO, THEY WON'T WORK!!!!!
+#
+# Enable two DHCP agents per neutron subnet with support for availability
+# zones. Requires a multi-node deployment.
+#[[post-config|/$NEUTRON_CONF]]
+#[DEFAULT]
+#network_scheduler_driver = neutron.scheduler.dhcp_agent_scheduler.AZAwareWeightScheduler
+#dhcp_load_type = networks
+#dhcp_agents_per_network = 2
+
+# If you enable the DHCP agent, you can configure the availability
+# zone name (default is nova).
+#[[post-config|$Q_DHCP_CONF_FILE]]
+#[AGENT]
+#availability_zone = nova

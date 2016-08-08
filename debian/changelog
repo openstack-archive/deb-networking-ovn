@@ -1,4 +1,4 @@
-networking-ovn (1.0.0~b1-1) UNRELEASED; urgency=medium
+networking-ovn (1.0.0~b2-1) UNRELEASED; urgency=medium
 
   * Initial release (Closes: #123456).
 

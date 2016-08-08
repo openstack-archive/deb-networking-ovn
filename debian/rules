@@ -15,7 +15,7 @@ endif
 override_dh_auto_install:
 	dh_auto_install
 	mkdir -p $(CURDIR)/debian/python-networking-ovn/etc/neutron/plugins/ml2
-	oslo-config-generator --namespace networking_ovn --namespace neutron.ml2 \
+	PYTHONPATH=$(CURDIR) oslo-config-generator --namespace networking_ovn --namespace neutron.ml2 \
 		--output-file $(CURDIR)/debian/python-networking-ovn/etc/neutron/plugins/ml2/ml2_conf.ovn.ini
 
 override_dh_clean:

@@ -5,13 +5,10 @@ Source: https://github.com/openstack/networking-ovn
 Files: *
 Copyright: 2011-2015, OpenStack Foundation
            2013-2014, Hewlett-Packard Development Company, L.P
-           2013, IBM Corp
-           2010, United States Government
+           2015-2016, Red Hat, Inc
            2014, Samsung Electronics
-           2015-2016, Futurewei
-           2015-2016, Huawei
-           2015, Huawei Technologies India Pvt. Ltd
-           2015, nuturewei
+           2015, VMware, Inc
+           2015, Networking OVN Developers
 License: Apache-2.0
 
 Files: debian/*

@@ -12,6 +12,12 @@ ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 	ostestr
 endif
 
+override_dh_auto_build:
+	dh_auto_build
+	mkdir -p $(PWD)/debian/python-networking-ovn/etc/neutron/plugins/ml2
+	oslo-config-generator --namespace networking_ovn --namespace neutron.ml2 \
+		--output-file $(PWD)/debian/python-networking-ovn/etc/neutron/plugins/ml2/ml2_conf.ovn.ini
+
 override_dh_clean:
 	dh_clean -O--buildsystem=python_distutils
 	rm -rf build

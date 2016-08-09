@@ -1,5 +1,5 @@
-networking-ovn (1.0.0~b2-1) UNRELEASED; urgency=medium
+networking-ovn (1.0.0~b2-1) experimental; urgency=medium
 
   * Initial release (Closes: #833765).
 
- -- James Page <james.page@ubuntu.com>  Tue, 17 Nov 2015 12:04:44 +0000
+ -- James Page <james.page@ubuntu.com>  Tue, 09 Aug 2016 14:24:59 +0100

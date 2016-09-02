@@ -1,6 +1,7 @@
 networking-ovn (1.0.0~b3-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Align (Build-)Depends with upstream.
 
  -- James Page <james.page@ubuntu.com>  Fri, 02 Sep 2016 09:26:07 +0100
 

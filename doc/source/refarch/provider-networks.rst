@@ -24,14 +24,19 @@ creates a ``flat`` provider network ``provider`` using the provider bridge
 Create a provider network
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#. On each compute node, create the provider bridge and map the provider
-   network to it.
+#. On each compute node, create the provider bridge, map the provider
+   network to it, and add the underlying physical or logical (typically
+   a bond) network interface to it.
 
    .. code-block:: console
 
       # ovs-vsctl --may-exist add-br br-provider -- set bridge br-provider \
         protocols=OpenFlow13
       # ovs-vsctl set open . external-ids:ovn-bridge-mappings=provider:br-provider
+      # ovs-vsctl --may-exist add-port br-provider INTERFACE_NAME
+
+   Replace ``INTERFACE_NAME`` with the name of the underlying network
+   interface.
 
    .. note::
 
@@ -97,9 +102,9 @@ creation of a provider network.
       _uuid               : 98edf19f-2dbc-4182-af9b-79cafa4794b6
       acls                : []
       external_ids        : {"neutron:network_name"=provider}
+      load_balancer       : []
       name                : "neutron-e4abf6df-f8cf-49fd-85d4-3ea399f4d645"
       ports               : [92ee7c2f-cd22-4cac-a9d9-68a374dc7b17]
-      subnets             : []
 
      .. note::
 
@@ -155,149 +160,71 @@ creation of a provider network.
 
      .. code-block:: console
 
-        _uuid               : 9af3d8d0-4ddc-4358-baea-608a7f45f0e2
-        actions             : "drop;"
-        external_ids        : {stage-name="ls_in_port_sec_l2"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "eth.src[40]"
-        pipeline            : ingress
-        priority            : 100
-        table_id            : 0
-
-        _uuid               : 4b16b89a-1854-4673-87e8-c7e109d9fda4
-        actions             : "drop;"
-        external_ids        : {stage-name="ls_in_port_sec_l2"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : vlan.present
-        pipeline            : ingress
-        priority            : 100
-        table_id            : 0
-
-        _uuid               : 3ae9d916-4b15-4015-bc5a-b688279f4932
-        actions             : "next;"
-        external_ids        : {stage-name="ls_in_port_sec_l2"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "inport == \"provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645\""
-        pipeline            : ingress
-        priority            : 50
-        table_id            : 0
-
-        _uuid               : ba45a569-5e0b-4a7e-a939-34bae9f44d34
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_port_sec_ip}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 1
-
-        _uuid               : 766938a1-71d3-4be3-b5ce-0f94de1ed303
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_port_sec_nd}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 2
-
-        _uuid               : 43cd956f-d536-4a6f-9d2b-d2a4be171039
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_pre_acl}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 3
-
-        _uuid               : 8e51e8e6-b37a-4d68-afad-80bbee2a87e3
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_acl}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 4
-
-        _uuid               : 090f58bd-3da8-41e4-b321-061aeb7eefcb
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_arp_rsp}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "inport == \"provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645\""
-        pipeline            : ingress
-        priority            : 100
-        table_id            : 5
-
-        _uuid               : c08246b6-e1b1-4890-a748-ab2c93931c0f
-        actions             : "next;"
-        external_ids        : {stage-name=ls_in_arp_rsp}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 5
-
-        _uuid               : 72e952e1-9921-46c2-ad35-3fa18241802a
-        actions             : "outport = \"_MC_flood\"; output;"
-        external_ids        : {stage-name="ls_in_l2_lkup"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : eth.mcast
-        pipeline            : ingress
-        priority            : 100
-        table_id            : 6
-
-        _uuid               : 1270489f-1937-4e19-80f6-66f4d6b3b86c
-        actions             : "outport = \"_MC_unknown\"; output;"
-        external_ids        : {stage-name="ls_in_l2_lkup"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : ingress
-        priority            : 0
-        table_id            : 6
-
-        _uuid               : e59532f8-d73e-4087-9b57-758f157cf6ba
-        actions             : "next;"
-        external_ids        : {stage-name=ls_out_pre_acl}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : egress
-        priority            : 0
-        table_id            : 0
-
-        _uuid               : de3786a2-2f2b-4832-98e9-add85adca9d7
-        actions             : "next;"
-        external_ids        : {stage-name=ls_out_acl}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : egress
-        priority            : 0
-        table_id            : 1
-
-        _uuid               : de2af9be-9298-4040-960e-b5015c842d7c
-        actions             : "next;"
-        external_ids        : {stage-name=ls_out_port_sec_ip}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "1"
-        pipeline            : egress
-        priority            : 0
-        table_id            : 2
-
-        _uuid               : 4e6c4521-132b-4b65-9310-10b6fcd9d328
-        actions             : "output;"
-        external_ids        : {stage-name="ls_out_port_sec_l2"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : eth.mcast
-        pipeline            : egress
-        priority            : 100
-        table_id            : 3
-
-        _uuid               : 9f4a9f96-a553-40f5-84bf-c84728454555
-        actions             : "output;"
-        external_ids        : {stage-name="ls_out_port_sec_l2"}
-        logical_datapath    : f1f0981f-a206-4fac-b3a1-dc2030c9909f
-        match               : "outport == \"provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645\""
-        pipeline            : egress
-        priority            : 50
-        table_id            : 3
+        Datapath: f1f0981f-a206-4fac-b3a1-dc2030c9909f  Pipeline: ingress
+          table= 0(  ls_in_port_sec_l2), priority=  100, match=(eth.src[40]),
+            action=(drop;)
+          table= 0(  ls_in_port_sec_l2), priority=  100, match=(vlan.present),
+            action=(drop;)
+          table= 0(  ls_in_port_sec_l2), priority=   50,
+            match=(inport == "provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645"),
+            action=(next;)
+          table= 1(  ls_in_port_sec_ip), priority=    0, match=(1),
+            action=(next;)
+          table= 2(  ls_in_port_sec_nd), priority=    0, match=(1),
+            action=(next;)
+          table= 3(      ls_in_pre_acl), priority=    0, match=(1),
+            action=(next;)
+          table= 4(       ls_in_pre_lb), priority=    0, match=(1),
+            action=(next;)
+          table= 5( ls_in_pre_stateful), priority=  100, match=(reg0[0] == 1),
+            action=(ct_next;)
+          table= 5( ls_in_pre_stateful), priority=    0, match=(1),
+            action=(next;)
+          table= 6(          ls_in_acl), priority=    0, match=(1),
+            action=(next;)
+          table= 7(           ls_in_lb), priority=    0, match=(1),
+            action=(next;)
+          table= 8(     ls_in_stateful), priority=  100, match=(reg0[1] == 1),
+            action=(ct_commit; next;)
+          table= 8(     ls_in_stateful), priority=  100, match=(reg0[2] == 1),
+            action=(ct_lb;)
+          table= 8(     ls_in_stateful), priority=    0, match=(1),
+            action=(next;)
+          table= 9(      ls_in_arp_rsp), priority=  100,
+            match=(inport == "provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645"),
+            action=(next;)
+          table= 9(      ls_in_arp_rsp), priority=    0, match=(1),
+            action=(next;)
+          table=10(      ls_in_l2_lkup), priority=  100, match=(eth.mcast),
+            action=(outport = "_MC_flood"; output;)
+          table=10(      ls_in_l2_lkup), priority=    0, match=(1),
+            action=(outport = "_MC_unknown"; output;)
+        Datapath: f1f0981f-a206-4fac-b3a1-dc2030c9909f  Pipeline: egress
+          table= 0(      ls_out_pre_lb), priority=    0, match=(1),
+            action=(next;)
+          table= 1(     ls_out_pre_acl), priority=    0, match=(1),
+            action=(next;)
+          table= 2(ls_out_pre_stateful), priority=  100, match=(reg0[0] == 1),
+            action=(ct_next;)
+          table= 2(ls_out_pre_stateful), priority=    0, match=(1),
+            action=(next;)
+          table= 3(          ls_out_lb), priority=    0, match=(1),
+            action=(next;)
+          table= 4(         ls_out_acl), priority=    0, match=(1),
+            action=(next;)
+          table= 5(    ls_out_stateful), priority=  100, match=(reg0[1] == 1),
+            action=(ct_commit; next;)
+          table= 5(    ls_out_stateful), priority=  100, match=(reg0[2] == 1),
+            action=(ct_lb;)
+          table= 5(    ls_out_stateful), priority=    0, match=(1),
+            action=(next;)
+          table= 6( ls_out_port_sec_ip), priority=    0, match=(1),
+            action=(next;)
+          table= 7( ls_out_port_sec_l2), priority=  100, match=(eth.mcast),
+            action=(output;)
+          table= 7( ls_out_port_sec_l2), priority=   50,
+            match=(outport == "provnet-e4abf6df-f8cf-49fd-85d4-3ea399f4d645"),
+            action=(output;)
 
    * Multicast groups
 
@@ -315,19 +242,6 @@ creation of a provider network.
         ports               : [8427506e-46b5-41e5-a71b-a94a6859e773]
         tunnel_key          : 65535
 
-#. The OVN controller service on each compute node translates these objects
-   into flows on the integration bridge ``br-int``.
-
-   .. code-block:: console
-
-      # ovs-ofctl dump-flows br-int
-      cookie=0x0, duration=49.036s, table=33, n_packets=0, n_bytes=0,
-          idle_age=49, priority=100,reg7=0xfffe,metadata=0x6d
-          actions=load:0x1->NXM_NX_REG5[],load:0xfffe->NXM_NX_REG7[]
-      cookie=0x0, duration=49.036s, table=33, n_packets=0, n_bytes=0,
-          idle_age=49, priority=100,reg7=0xffff,metadata=0x6d
-          actions=load:0x1->NXM_NX_REG5[],load:0xffff->NXM_NX_REG7[]
-
 Create a subnet on the provider network
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -341,7 +255,7 @@ and metadata such as name resolution.
    .. code-block:: console
 
       $ openstack subnet create --network provider --subnet-range \
-        203.0.113.0/24--allocation-pool start=203.0.113.101,end=203.0.113.250 \
+        203.0.113.0/24 --allocation-pool start=203.0.113.101,end=203.0.113.250 \
         --dns-nameserver 8.8.8.8,8.8.4.4 --gateway 203.0.113.1 provider-v4
         +-------------------+--------------------------------------+
         | Field             | Value                                |
@@ -416,6 +330,7 @@ during creation of a subnet on the provider network.
       _uuid               : 924500c4-8580-4d5f-a7ad-8769f6e58ff5
       acls                : []
       external_ids        : {"neutron:network_name"=provider}
+      load_balancer       : []
       name                : "neutron-670efade-7cd0-4d87-8a04-27f366eb8941"
       ports               : [38cf8b52-47c4-4e93-be8d-06bf71f6a7c9,
                              5e144ab9-3e08-4910-b936-869bbbf254c8,
@@ -462,82 +377,45 @@ during creation of a subnet on the provider network.
                                cc5bcd19-bcae-4e29-8cee-3ec8a8a75d46]
         tunnel_key          : 65535
 
-#. The OVN northbound service translates the logical ports into logical flows
-   in the OVN southbound database.
+#. The OVN northbound service translates the logical ports into
+   additional logical flows in the OVN southbound database.
 
    .. code-block:: console
 
-      _uuid               : 73c26264-c623-46ac-8fff-8a3dfd7890a6
-      actions             : "next;"
-      external_ids        : {stage-name="ls_in_port_sec_l2"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "inport == \"94aee636-2394-48bc-b407-8224ab6bb1ab\""
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 0
-
-      _uuid               : 50721806-41e4-40e0-bbc6-ffc4d19747c2
-      actions             : "next;"
-      external_ids        : {stage-name="ls_in_port_sec_l2"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "inport == \"6ab052c2-7b75-4463-b34f-fd3426f61787\""
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 0
-
-      _uuid               : 1bf827d4-cf49-4f1f-9218-a62def3d2026
-      actions             : "eth.dst = eth.src; eth.src = fa:16:3e:57:f9:ca; arp.op = 2; /* ARP reply \*/ arp.tha = arp.sha; arp.sha = fa:16:3e:57:f9:ca; arp.tpa = arp.spa; arp.spa = 203.0.113.101; outport = inport; inport = \"\"; /* Allow sending out inport. \*/ output;"
-      external_ids        : {stage-name=ls_in_arp_rsp}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "arp.tpa == 203.0.113.101 && arp.op == 1"
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 5
-
-      _uuid               : ae003a1d-42c5-4830-ae7d-62ee70cbd203
-      actions             : "eth.dst = eth.src; eth.src = fa:16:3e:e0:eb:6d; arp.op = 2; /* ARP reply \*/ arp.tha = arp.sha; arp.sha = fa:16:3e:e0:eb:6d; arp.tpa = arp.spa; arp.spa = 203.0.113.102; outport = inport; inport = \"\"; /* Allow sending out inport. \*/ output;"
-      external_ids        : {stage-name=ls_in_arp_rsp}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "arp.tpa == 203.0.113.102 && arp.op == 1"
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 5
-
-      _uuid               : b5c2112a-042f-477a-9c23-73c6a70d9145
-      actions             : "outport = \"6ab052c2-7b75-4463-b34f-fd3426f61787\"; output;"
-      external_ids        : {stage-name="ls_in_l2_lkup"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "eth.dst == fa:16:3e:57:f9:ca"
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 6
-
-      _uuid               : 30b41b0b-50dc-4beb-b209-0e5dcfc6ca03
-      actions             : "outport = \"94aee636-2394-48bc-b407-8224ab6bb1ab\"; output;"
-      external_ids        : {stage-name="ls_in_l2_lkup"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "eth.dst == fa:16:3e:e0:eb:6d"
-      pipeline            : ingress
-      priority            : 50
-      table_id            : 6
-
-      _uuid               : fbbbf94f-ab4c-4989-b2c4-f19d67b277dd
-      actions             : "output;"
-      external_ids        : {stage-name="ls_out_port_sec_l2"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "outport == \"6ab052c2-7b75-4463-b34f-fd3426f61787\""
-      pipeline            : egress
-      priority            : 50
-      table_id            : 3
-
-      _uuid               : 6de3e6cf-bfb6-46e1-88cc-745a0fbe0a6c
-      actions             : "output;"
-      external_ids        : {stage-name="ls_out_port_sec_l2"}
-      logical_datapath    : bd0ab2b3-4cf4-4289-9529-ef430f6a89e6
-      match               : "outport == \"94aee636-2394-48bc-b407-8224ab6bb1ab\""
-      pipeline            : egress
-      priority            : 50
-      table_id            : 3
+      Datapath: bd0ab2b3-4cf4-4289-9529-ef430f6a89e6  Pipeline: ingress
+        table= 0(  ls_in_port_sec_l2), priority=   50,
+          match=(inport == "94aee636-2394-48bc-b407-8224ab6bb1ab"),
+          action=(next;)
+        table= 0(  ls_in_port_sec_l2), priority=   50,
+          match=(inport == "6ab052c2-7b75-4463-b34f-fd3426f61787"),
+          action=(next;)
+        table= 9(      ls_in_arp_rsp), priority=   50,
+          match=(arp.tpa == 203.0.113.101 && arp.op == 1),
+          action=(eth.dst = eth.src; eth.src = fa:16:3e:57:f9:ca;
+                  arp.op = 2; /* ARP reply */ arp.tha = arp.sha;
+                  arp.sha = fa:16:3e:57:f9:ca; arp.tpa = arp.spa;
+                  arp.spa = 203.0.113.101; outport = inport; inport = "";
+                  /* Allow sending out inport. */ output;)
+        table= 9(      ls_in_arp_rsp), priority=   50,
+          match=(arp.tpa == 203.0.113.102 && arp.op == 1),
+          action=(eth.dst = eth.src; eth.src = fa:16:3e:e0:eb:6d;
+                  arp.op = 2; /* ARP reply */ arp.tha = arp.sha;
+                  arp.sha = fa:16:3e:e0:eb:6d; arp.tpa = arp.spa;
+                  arp.spa = 203.0.113.102; outport = inport;
+                  inport = ""; /* Allow sending out inport. */ output;)
+        table=10(      ls_in_l2_lkup), priority=   50,
+          match=(eth.dst == fa:16:3e:57:f9:ca),
+          action=(outport = "6ab052c2-7b75-4463-b34f-fd3426f61787"; output;)
+        table=10(      ls_in_l2_lkup), priority=   50,
+          match=(eth.dst == fa:16:3e:e0:eb:6d),
+          action=(outport = "94aee636-2394-48bc-b407-8224ab6bb1ab"; output;)
+      Datapath: bd0ab2b3-4cf4-4289-9529-ef430f6a89e6  Pipeline: egress
+        table= 7( ls_out_port_sec_l2), priority=   50,
+          match=(outport == "6ab052c2-7b75-4463-b34f-fd3426f61787"),
+          action=(output;)
+        table= 7( ls_out_port_sec_l2), priority=   50,
+          match=(outport == "94aee636-2394-48bc-b407-8224ab6bb1ab"),
+          action=(output;)
 
 #. For each compute node without a DHCP agent on the subnet:
 
@@ -602,7 +480,8 @@ during creation of a subnet on the provider network.
         cookie=0x0, duration=17.730s, table=0, n_packets=0, n_bytes=0,
             idle_age=17, priority=100,in_port=8,dl_vlan=0
             actions=strip_vlan,load:0x1->NXM_NX_REG5[],
-                load:0x4->OXM_OF_METADATA[],load:0x1->NXM_NX_REG6[],resubmit(,16)
+                load:0x4->OXM_OF_METADATA[],load:0x1->NXM_NX_REG6[],
+                resubmit(,16)
         cookie=0x0, duration=17.732s, table=16, n_packets=0, n_bytes=0,
             idle_age=17, priority=100,metadata=0x4,
                 dl_src=01:00:00:00:00:00/01:00:00:00:00:00
@@ -616,52 +495,79 @@ during creation of a subnet on the provider network.
             idle_age=17, priority=50,reg6=0x3,metadata=0x4 actions=resubmit(,17)
         cookie=0x0, duration=17.732s, table=16, n_packets=15, n_bytes=954,
             idle_age=2, priority=50,reg6=0x1,metadata=0x4 actions=resubmit(,17)
-        cookie=0x0, duration=17.732s, table=17, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,18)
-        cookie=0x0, duration=17.732s, table=18, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,19)
-        cookie=0x0, duration=17.732s, table=19, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,20)
-        cookie=0x0, duration=17.732s, table=20, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,21)
-        cookie=0x0, duration=17.732s, table=21, n_packets=15, n_bytes=954,
-            idle_age=2, priority=100,reg6=0x1,metadata=0x4 actions=resubmit(,22)
-        cookie=0x0, duration=17.732s, table=21, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,arp,metadata=0x4,arp_tpa=203.0.113.101,
-                arp_op=1
+        cookie=0x0, duration=21.714s, table=17, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,18)
+        cookie=0x0, duration=21.714s, table=18, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,19)
+        cookie=0x0, duration=21.714s, table=19, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,20)
+        cookie=0x0, duration=21.714s, table=20, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,21)
+        cookie=0x0, duration=21.714s, table=21, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x1/0x1,metadata=0x4
+            actions=ct(table=22,zone=NXM_NX_REG5[0..15])
+        cookie=0x0, duration=21.714s, table=21, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x1/0x1,metadata=0x4
+            actions=ct(table=22,zone=NXM_NX_REG5[0..15])
+        cookie=0x0, duration=21.714s, table=21, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,22)
+        cookie=0x0, duration=21.714s, table=22, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,23)
+        cookie=0x0, duration=21.714s, table=23, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,24)
+        cookie=0x0, duration=21.714s, table=24, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x4/0x4,metadata=0x4
+            actions=ct(table=25,zone=NXM_NX_REG5[0..15],nat)
+        cookie=0x0, duration=21.714s, table=24, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x4/0x4,metadata=0x4
+            actions=ct(table=25,zone=NXM_NX_REG5[0..15],nat)
+        cookie=0x0, duration=21.714s, table=24, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x2/0x2,metadata=0x4
+            actions=ct(commit,zone=NXM_NX_REG5[0..15]),resubmit(,25)
+        cookie=0x0, duration=21.714s, table=24, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x2/0x2,metadata=0x4
+            actions=ct(commit,zone=NXM_NX_REG5[0..15]),resubmit(,25)
+        cookie=0x0, duration=21.714s, table=24, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,25)
+        cookie=0x0, duration=21.714s, table=25, n_packets=15, n_bytes=954,
+            idle_age=6, priority=100,reg6=0x1,metadata=0x4 actions=resubmit(,26)
+        cookie=0x0, duration=21.714s, table=25, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,arp,metadata=0x4,
+                arp_tpa=203.0.113.101,arp_op=1
             actions=move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],
-                mod_dl_src:fa:16:3e:57:f9:ca,load:0x2->NXM_OF_ARP_OP[],
+                mod_dl_src:fa:16:3e:f9:5d:f3,load:0x2->NXM_OF_ARP_OP[],
                 move:NXM_NX_ARP_SHA[]->NXM_NX_ARP_THA[],
-                load:0xfa163e57f9ca->NXM_NX_ARP_SHA[],
+                load:0xfa163ef95df3->NXM_NX_ARP_SHA[],
                 move:NXM_OF_ARP_SPA[]->NXM_OF_ARP_TPA[],
                 load:0xc0a81264->NXM_OF_ARP_SPA[],
                 move:NXM_NX_REG6[]->NXM_NX_REG7[],
                 load:0->NXM_NX_REG6[],load:0->NXM_OF_IN_PORT[],resubmit(,32)
-        cookie=0x0, duration=17.696s, table=21, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,arp,metadata=0x4,arp_tpa=203.0.113.102,
-                arp_op=1
+        cookie=0x0, duration=21.714s, table=25, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,arp,metadata=0x4,
+                arp_tpa=203.0.113.102,arp_op=1
             actions=move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],
-                mod_dl_src:fa:16:3e:e0:eb:6d,load:0x2->NXM_OF_ARP_OP[],
+                mod_dl_src:fa:16:3e:f0:a5:9f,
+                load:0x2->NXM_OF_ARP_OP[],
                 move:NXM_NX_ARP_SHA[]->NXM_NX_ARP_THA[],
-                load:0xfa163ee0eb6d->NXM_NX_ARP_SHA[],
+                load:0xfa163ef0a59f->NXM_NX_ARP_SHA[],
                 move:NXM_OF_ARP_SPA[]->NXM_OF_ARP_TPA[],
                 load:0xc0a81265->NXM_OF_ARP_SPA[],
                 move:NXM_NX_REG6[]->NXM_NX_REG7[],
                 load:0->NXM_NX_REG6[],load:0->NXM_OF_IN_PORT[],resubmit(,32)
-        cookie=0x0, duration=17.732s, table=21, n_packets=3, n_bytes=258,
-            idle_age=16, priority=0,metadata=0x4 actions=resubmit(,22)
-        cookie=0x0, duration=17.732s, table=22, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=100,metadata=0x4,
+        cookie=0x0, duration=21.714s, table=25, n_packets=3, n_bytes=258,
+            idle_age=20, priority=0,metadata=0x4 actions=resubmit(,26)
+        cookie=0x0, duration=21.714s, table=26, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=100,metadata=0x4,
                 dl_dst=01:00:00:00:00:00/01:00:00:00:00:00
             actions=load:0xffff->NXM_NX_REG7[],resubmit(,32)
-        cookie=0x0, duration=17.732s, table=22, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,metadata=0x4,dl_dst=fa:16:3e:57:f9:ca
-            actions=load:0x2->NXM_NX_REG7[],resubmit(,32)
-        cookie=0x0, duration=17.732s, table=22, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,metadata=0x4,dl_dst=fa:16:3e:e0:eb:6d
+        cookie=0x0, duration=21.714s, table=26, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,metadata=0x4,dl_dst=fa:16:3e:f0:a5:9f
             actions=load:0x3->NXM_NX_REG7[],resubmit(,32)
-        cookie=0x0, duration=17.732s, table=22, n_packets=0, n_bytes=0,
-            idle_age=17, priority=0,metadata=0x4
+        cookie=0x0, duration=21.714s, table=26, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,metadata=0x4,dl_dst=fa:16:3e:f9:5d:f3
+            actions=load:0x2->NXM_NX_REG7[],resubmit(,32)
+        cookie=0x0, duration=21.714s, table=26, n_packets=0, n_bytes=0,
+            idle_age=21, priority=0,metadata=0x4
             actions=load:0xfffe->NXM_NX_REG7[],resubmit(,32)
         cookie=0x0, duration=17.731s, table=33, n_packets=0, n_bytes=0,
             idle_age=17, priority=100,reg7=0x2,metadata=0x4
@@ -682,26 +588,58 @@ during creation of a subnet on the provider network.
             idle_age=17, priority=100,reg7=0x3,metadata=0x4
             actions=load:0x1->NXM_NX_REG7[],resubmit(,33)
         cookie=0x0, duration=17.731s, table=34, n_packets=3, n_bytes=258,
-            idle_age=16, priority=100,reg6=0x2,reg7=0x2,metadata=0x4 actions=drop
+            idle_age=16, priority=100,reg6=0x2,reg7=0x2,metadata=0x4
+            actions=drop
         cookie=0x0, duration=17.730s, table=34, n_packets=15, n_bytes=954,
-            idle_age=2, priority=100,reg6=0x1,reg7=0x1,metadata=0x4 actions=drop
-        cookie=0x0, duration=17.732s, table=48, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,49)
-        cookie=0x0, duration=17.732s, table=49, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,50)
-        cookie=0x0, duration=17.732s, table=50, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=0,metadata=0x4 actions=resubmit(,51)
-        cookie=0x0, duration=17.732s, table=51, n_packets=18, n_bytes=1212,
-            idle_age=2, priority=100,metadata=0x4,
-               dl_dst=01:00:00:00:00:00/01:00:00:00:00:00
+            idle_age=2, priority=100,reg6=0x1,reg7=0x1,metadata=0x4
+            actions=drop
+        cookie=0x0, duration=21.714s, table=48, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,49)
+        cookie=0x0, duration=21.714s, table=49, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,50)
+        cookie=0x0, duration=21.714s, table=50, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x1/0x1,metadata=0x4
+            actions=ct(table=51,zone=NXM_NX_REG5[0..15])
+        cookie=0x0, duration=21.714s, table=50, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x1/0x1,metadata=0x4
+            actions=ct(table=51,zone=NXM_NX_REG5[0..15])
+        cookie=0x0, duration=21.714s, table=50, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,51)
+        cookie=0x0, duration=21.714s, table=51, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,52)
+        cookie=0x0, duration=21.714s, table=52, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,53)
+        cookie=0x0, duration=21.714s, table=53, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x4/0x4,metadata=0x4
+            actions=ct(table=54,zone=NXM_NX_REG5[0..15],nat)
+        cookie=0x0, duration=21.714s, table=53, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x4/0x4,metadata=0x4
+            actions=ct(table=54,zone=NXM_NX_REG5[0..15],nat)
+        cookie=0x0, duration=21.714s, table=53, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ipv6,reg0=0x2/0x2,metadata=0x4
+            actions=ct(commit,zone=NXM_NX_REG5[0..15]),resubmit(,54)
+        cookie=0x0, duration=21.714s, table=53, n_packets=0, n_bytes=0,
+            idle_age=21, priority=100,ip,reg0=0x2/0x2,metadata=0x4
+            actions=ct(commit,zone=NXM_NX_REG5[0..15]),resubmit(,54)
+        cookie=0x0, duration=21.714s, table=53, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,54)
+        cookie=0x0, duration=21.714s, table=54, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=0,metadata=0x4 actions=resubmit(,55)
+        cookie=0x0, duration=21.714s, table=55, n_packets=18, n_bytes=1212,
+            idle_age=6, priority=100,metadata=0x4,
+                dl_dst=01:00:00:00:00:00/01:00:00:00:00:00
             actions=resubmit(,64)
-        cookie=0x0, duration=17.732s, table=51, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,reg7=0x3,metadata=0x4 actions=resubmit(,64)
-        cookie=0x0, duration=17.732s, table=51, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,reg7=0x2,metadata=0x4 actions=resubmit(,64)
-        cookie=0x0, duration=17.732s, table=51, n_packets=0, n_bytes=0,
-            idle_age=17, priority=50,reg7=0x1,metadata=0x4 actions=resubmit(,64)
-        cookie=0x0, duration=17.731s, table=64, n_packets=15, n_bytes=954,
-            idle_age=2, priority=100,reg7=0x2,metadata=0x4 actions=output:7
-        cookie=0x0, duration=17.730s, table=64, n_packets=3, n_bytes=258,
-            idle_age=16, priority=100,reg7=0x1,metadata=0x4 actions=output:8
+        cookie=0x0, duration=21.714s, table=55, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,reg7=0x3,metadata=0x4
+            actions=resubmit(,64)
+        cookie=0x0, duration=21.714s, table=55, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,reg7=0x2,metadata=0x4
+            actions=resubmit(,64)
+        cookie=0x0, duration=21.714s, table=55, n_packets=0, n_bytes=0,
+            idle_age=21, priority=50,reg7=0x1,metadata=0x4
+            actions=resubmit(,64)
+        cookie=0x0, duration=21.712s, table=64, n_packets=15, n_bytes=954,
+            idle_age=6, priority=100,reg7=0x3,metadata=0x4 actions=output:7
+        cookie=0x0, duration=21.711s, table=64, n_packets=3, n_bytes=258,
+            idle_age=20, priority=100,reg7=0x1,metadata=0x4 actions=output:8
+

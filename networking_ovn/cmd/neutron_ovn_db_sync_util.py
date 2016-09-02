@@ -16,7 +16,7 @@ from oslo_config import cfg
 from oslo_db import options as db_options
 from oslo_log import log as logging
 
-from neutron.agent import securitygroups_rpc
+from neutron.conf.agent import securitygroups_rpc
 from neutron import context
 from neutron import manager
 from neutron import opts as neutron_options
@@ -117,16 +117,22 @@ def main():
 
     LOG.info(_LI('Syncing the networks and ports with mode : %s'), mode)
     try:
+        synchronizer.sync_address_sets(ctx)
+    except Exception:
+        LOG.exception(_LE("Error syncing  the Address Sets. Check the "
+                          "--database-connection value again"))
+        return
+    try:
         synchronizer.sync_networks_and_ports(ctx)
     except Exception:
-        LOG.exception(_LE("Error syncing  the networks and ports. Check the "
-                          "--database-connection value again"))
+        LOG.exception(_LE("Error syncing  Networks and Ports for unknown "
+                          "reason please try again"))
         return
     try:
         synchronizer.sync_acls(ctx)
     except Exception:
-        LOG.exception(_LE("Error syncing  ACLs for unknown reason "
-                          "please try again"))
+        LOG.exception(_LE("Error syncing  ACLs for unknown "
+                          "reason please try again"))
         return
     try:
         synchronizer.sync_routers_and_rports(ctx)

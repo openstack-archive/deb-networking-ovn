@@ -198,6 +198,22 @@ class API(object):
         """
 
     @abc.abstractmethod
+    def update_lrouter_port(self, name, lrouter, if_exists=True, **columns):
+        """Update a command to add an OVN lrouter port
+
+        :param name:         The unique name of the lrouter port
+        :type name:          string
+        :param lrouter:      The unique name of the lrouter
+        :type lrouter:       string
+        :param if_exists:    Do not fail if the lrouter port does not exists
+        :type if_exists:     bool
+        :param columns:      Dictionary of lrouter columns
+                             Supported columns: networks
+        :type columns:       dictionary
+        :returns:            :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
     def delete_lrouter_port(self, name, lrouter, if_exists=True):
         """Create a command to delete an OVN lrouter port
 
@@ -292,6 +308,169 @@ class API(object):
         :returns:            :class:`Command` with no result
         """
 
+    @abc.abstractmethod
+    def create_address_set(self, name, may_exist=True, **columns):
+        """Create an address set
+
+        :param name:        The name of the address set
+        :type name:         string
+        :param may_exist:   Do not fail if address set already exists
+        :type may_exist:    bool
+        :param columns:     Dictionary of address set columns
+                            Supported columns: external_ids, addresses
+        :type columns:      dictionary
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def delete_address_set(self, name, if_exists=True):
+        """Delete an address set
+
+        :param name:        The name of the address set
+        :type name:         string
+        :param if_exists:   Do not fail if the address set does not exist
+        :type if_exists:    bool
+        :returns:           :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def update_address_set(self, name, addrs_add, addrs_remove,
+                           if_exists=True):
+        """Updates addresses in an address set
+
+        :param name:            The name of the address set
+        :type name:             string
+        :param addrs_add:       The addresses to be added
+        :type addrs_add:        []
+        :param addrs_remove:    The addresses to be removed
+        :type addrs_remove:     []
+        :param if_exists:       Do not fail if the address set does not exist
+        :type if_exists:        bool
+        :returns:               :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def update_address_set_ext_ids(self, name, external_ids, if_exists=True):
+        """Update external IDs for an address set
+
+        :param name:          The name of the address set
+        :type name:           string
+        :param external_ids:  The external IDs for the address set
+        :type external_ids:   dict
+        :param if_exists:     Do not fail if the address set does not exist
+        :type if_exists:      bool
+        :returns:             :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def get_all_chassis_router_bindings(self, chassis_candidate_list=None):
+        """Return a dictionary of chassis name:list of router gateways
+
+        :param chassis_candidate_list:  List of possible chassis candidates
+        :type chassis_candidate_list:   []
+        :returns:                       {} of chassis to routers mapping
+        """
+
+    @abc.abstractmethod
+    def get_router_chassis_binding(self, router_id):
+        """Return the chassis to which the router is bound to
+
+        :param router_id:     The neutron router id
+        :type router_id:      string
+        :returns              string containing the chassis name
+        """
+
+    @abc.abstractmethod
+    def get_unhosted_routers(self, valid_chassis_list):
+        """Return a dictionary of routers gateways not hosted on chassis
+
+        :param valid_chassis_list: List of valid chassis
+        :returns                   List of routers not hosted on a valid
+                                   chassis
+        """
+
+    def add_dhcp_options(self, subnet_id, port_id=None, may_exists=True,
+                         **columns):
+        """Adds the DHCP options specified in the @columns in DHCP_Options
+
+        If the DHCP options already exist in the DHC_Options table for
+        the @subnet_id (and @lsp_name), updates the row, else creates a new
+        row.
+
+        :param subnet_id:      The subnet id to which the DHCP options belong
+                               to
+        :type subnet_id:       string
+        :param port_id:        The port id to which the DHCP options belong to
+                               if specified
+        :type port_id:         string
+        :param may_exists:     If true, checks if the DHCP options for
+                               subnet_id exists or not. If it already exists,
+                               it updates the row with the columns specified.
+                               Else creates a new row.
+        :type may_exists:      bool
+        :type columns:         Dictionary of DHCP_Options columns
+                               Supported columns: see DHCP_Options table in
+                               OVN_Northbound
+        :returns:            :class:`Command` with no result
+        """
+
+    @abc.abstractmethod
+    def delete_dhcp_options(self, row_uuid, if_exists=True):
+        """Deletes the row in DHCP_Options with the @row_uuid
+
+        :param row_uuid:       The UUID of the row to be deleted.
+        :type row_uuid:        string
+        :param if_exists:      Do not fail if the DHCP_Options row does not
+                               exist
+        :type if_exists:       bool
+        """
+
+    @abc.abstractmethod
+    def get_subnet_dhcp_options(self, subnet_id):
+        """Returns the Subnet DHCP options as a dictionary
+
+        :param subnet_id:      The subnet id whose DHCP options are returned
+        :type subnet_id:       string
+        :returns:              Returns the columns of the DHCP_Options as a
+                               dictionary. None is returned if no DHCP options.
+        """
+
+    @abc.abstractmethod
+    def get_port_dhcp_options(self, subnet_id, port_id):
+        """Returns the Logical switch port DHCP_Options as a dictionary
+
+        :param subnet_id:      The subnet id whose DHCP options are returned
+        :type subnet_id:       string
+        :param port_id:        The port id whose DHCP options are returned
+        :type port_id:         string
+        :returns:              Returns the columns of the DHCP_Options as a
+                               dictionary belonging to the logical switch port
+                               and subnet specified. None is returned if no
+                               DHCP options.
+        """
+
+    @abc.abstractmethod
+    def compose_dhcp_options_commands(self, subnet_id, **columns):
+        """Returns a list of 'Command' objects to add the DHCP options in NB DB
+
+        Checks if there are DHCP_Options rows for the logical switch ports
+        belonging to the @subnet_id and if found adds into the `Command` list.
+
+        @param subnet_id:     The subnet id to which DHCP Options are to be
+                              added
+        @type subnet_id:      string
+        @type columns:        Dictionary of DHCP_Options columns
+        @returns:             List of 'Command' objects returned by
+                              'add_dhcp_options'
+        """
+
+    @abc.abstractmethod
+    def get_address_sets(self):
+        """Gets all address sets in the OVN_Northbound DB
+
+        :returns: dictionary indexed by name, DB columns as values
+        """
+
 
 @six.add_metaclass(abc.ABCMeta)
 class SbAPI(object):
@@ -301,4 +480,12 @@ class SbAPI(object):
 
         Hostname will be dict key, and a list of physnets will be dict
         value. And hostname and physnets are related to the same host.
+        """
+
+    @abc.abstractmethod
+    def get_all_chassis(self, chassis_type=None):
+        """Return a list of all chassis which match the compute_type
+
+        :param chassis_type:    The type of chassis
+        :type chassis_type:     string
         """

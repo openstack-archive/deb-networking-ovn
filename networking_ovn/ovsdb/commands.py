@@ -245,9 +245,13 @@ class AddLRouterPortCommand(BaseCommand):
         try:
             idlutils.row_by_value(self.api.idl, 'Logical_Router_Port',
                                   'name', self.name)
-            # TODO(chandrav) This might be a case of multiple prefixes
-            # on the same port. yet to figure out if and how OVN needs
-            # to cater to this case
+            # The LRP entry with certain name has already exist, raise an
+            # exception to notice caller. It's caller's responsibility to
+            # call UpdateLRouterPortCommand to get LRP entry processed
+            # correctly.
+            msg = _("Logical Router Port with name \"%s\" "
+                    "already exists.") % self.name
+            raise RuntimeError(msg)
         except idlutils.RowNotFound:
             lrouter_port = txn.insert(self.api._tables['Logical_Router_Port'])
             lrouter_port.name = self.name
@@ -258,6 +262,30 @@ class AddLRouterPortCommand(BaseCommand):
             if lrouter_port not in lrouter_ports:
                 lrouter_ports.append(lrouter_port)
                 setattr(lrouter, 'ports', lrouter_ports)
+
+
+class UpdateLRouterPortCommand(BaseCommand):
+    def __init__(self, api, name, lrouter, if_exists, **columns):
+        super(UpdateLRouterPortCommand, self).__init__(api)
+        self.name = name
+        self.columns = columns
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        try:
+            lrouter_port = idlutils.row_by_value(self.api.idl,
+                                                 'Logical_Router_Port',
+                                                 'name', self.name)
+        except idlutils.RowNotFound:
+            if self.if_exists:
+                return
+            msg = _("Logical Router Port %s does not exist") % self.name
+            raise RuntimeError(msg)
+
+        if lrouter_port:
+            for col, val in self.columns.items():
+                setattr(lrouter_port, col, val)
+            return
 
 
 class DelLRouterPortCommand(BaseCommand):
@@ -514,16 +542,21 @@ class UpdateACLsCommand(BaseCommand):
                 self._get_update_data_without_compare()
 
         for lswitch_name, lswitch in six.iteritems(lswitch_ovsdb_dict):
+            acl_del_objs = acl_del_objs_dict.get(lswitch_name, [])
+            acl_add_values = acl_add_values_dict.get(lswitch_name, [])
+
+            # Continue if no ACLs to add or delete.
+            if not acl_del_objs and not acl_add_values:
+                continue
+
             lswitch.verify('acls')
             acls = getattr(lswitch, 'acls', [])
 
             # Delete ACLs
-            acl_del_objs = acl_del_objs_dict.get(lswitch_name, [])
             if acl_del_objs:
                 self._delete_acls(lswitch_name, acls, acl_del_objs)
 
             # Add new ACLs
-            acl_add_values = acl_add_values_dict.get(lswitch_name, [])
             if acl_add_values:
                 self._add_acls(txn, acls, acl_add_values)
 
@@ -582,3 +615,144 @@ class DelStaticRouteCommand(BaseCommand):
                 route.delete()
                 break
         setattr(lrouter, 'static_routes', static_routes)
+
+
+class AddAddrSetCommand(BaseCommand):
+    def __init__(self, api, name, may_exist, **columns):
+        super(AddAddrSetCommand, self).__init__(api)
+        self.name = name
+        self.columns = columns
+        self.may_exist = may_exist
+
+    def run_idl(self, txn):
+        if self.may_exist:
+            addrset = idlutils.row_by_value(self.api.idl, 'Address_Set',
+                                            'name', self.name, None)
+            if addrset:
+                return
+        row = txn.insert(self.api._tables['Address_Set'])
+        row.name = self.name
+        for col, val in self.columns.items():
+            setattr(row, col, val)
+
+
+class DelAddrSetCommand(BaseCommand):
+    def __init__(self, api, name, if_exists):
+        super(DelAddrSetCommand, self).__init__(api)
+        self.name = name
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        try:
+            addrset = idlutils.row_by_value(self.api.idl, 'Address_Set',
+                                            'name', self.name)
+        except idlutils.RowNotFound:
+            if self.if_exists:
+                return
+            msg = _("Address set %s does not exist. "
+                    "Can't delete.") % self.name
+            raise RuntimeError(msg)
+
+        self.api._tables['Address_Set'].rows[addrset.uuid].delete()
+
+
+class UpdateAddrSetCommand(BaseCommand):
+    def __init__(self, api, name, addrs_add, addrs_remove, if_exists):
+        super(UpdateAddrSetCommand, self).__init__(api)
+        self.name = name
+        self.addrs_add = addrs_add
+        self.addrs_remove = addrs_remove
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        try:
+            addrset = idlutils.row_by_value(self.api.idl, 'Address_Set',
+                                            'name', self.name)
+        except idlutils.RowNotFound:
+            if self.if_exists:
+                return
+            msg = _("Address set %s does not exist. "
+                    "Can't update addresses") % self.name
+            raise RuntimeError(msg)
+
+        addrset.verify('addresses')
+        addresses_col = getattr(addrset, 'addresses', [])
+        if self.addrs_add:
+            # OVN will ignore duplicate addresses.
+            for addr_add in self.addrs_add:
+                addresses_col.append(addr_add)
+        if self.addrs_remove:
+            # OVN will ignore addresses that don't exist.
+            for addr_remove in self.addrs_remove:
+                if addr_remove in addresses_col:
+                    addresses_col.remove(addr_remove)
+        setattr(addrset, 'addresses', addresses_col)
+
+
+class UpdateAddrSetExtIdsCommand(BaseCommand):
+    def __init__(self, api, name, external_ids, if_exists):
+        super(UpdateAddrSetExtIdsCommand, self).__init__(api)
+        self.name = name
+        self.external_ids = external_ids
+        self.if_exists = if_exists
+
+    def run_idl(self, txn):
+        try:
+            addrset = idlutils.row_by_value(self.api.idl, 'Address_Set',
+                                            'name', self.name)
+        except idlutils.RowNotFound:
+            if self.if_exists:
+                return
+            msg = _("Address set %s does not exist. "
+                    "Can't update external IDs") % self.name
+            raise RuntimeError(msg)
+
+        addrset.verify('external_ids')
+        addrset_external_ids = getattr(addrset, 'external_ids', {})
+        for ext_id_key, ext_id_value in six.iteritems(self.external_ids):
+            addrset_external_ids[ext_id_key] = ext_id_value
+        addrset.external_ids = addrset_external_ids
+
+
+class AddDHCPOptionsCommand(BaseCommand):
+    def __init__(self, api, subnet_id, port_id=None, may_exists=True,
+                 **columns):
+        super(AddDHCPOptionsCommand, self).__init__(api)
+        self.columns = columns
+        self.may_exists = may_exists
+        self.subnet_id = subnet_id
+        self.port_id = port_id
+
+    def _get_dhcp_options_row(self):
+        for row in self.api._tables['DHCP_Options'].rows.values():
+            external_ids = getattr(row, 'external_ids', {})
+            port_id = external_ids.get('port_id')
+            if self.subnet_id == external_ids.get('subnet_id'):
+                if self.port_id == port_id:
+                    return row
+
+    def run_idl(self, txn):
+        row = None
+        if self.may_exists:
+            row = self._get_dhcp_options_row()
+
+        if not row:
+            row = txn.insert(self.api._tables['DHCP_Options'])
+        for col, val in self.columns.items():
+            setattr(row, col, val)
+
+
+class DelDHCPOptionsCommand(BaseCommand):
+    def __init__(self, api, row_uuid, if_exists=True):
+        super(DelDHCPOptionsCommand, self).__init__(api)
+        self.if_exists = if_exists
+        self.row_uuid = row_uuid
+
+    def run_idl(self, txn):
+        if self.row_uuid not in self.api._tables['DHCP_Options'].rows:
+            if self.if_exists:
+                return
+            msg = _("DHCP Options row %s does not exist") % self.row_uuid
+            raise RuntimeError(msg)
+
+        self.api._tables['DHCP_Options'].rows[self.row_uuid].delete()

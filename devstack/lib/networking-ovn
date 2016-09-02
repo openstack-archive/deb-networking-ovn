@@ -63,12 +63,17 @@ OVN_UUID=${OVN_UUID:-}
 # unless the distro kernel includes ovs+conntrack support.
 OVN_BUILD_MODULES=$(trueorfalse True OVN_BUILD_MODULES)
 
-# GENEVE overlay protocol overhead. Defaults to 58 bytes. The ML2 framework
-# will use this to configure the DHCP agent MTU option.
-# TODO(rtheis): This does not account for the 20 byte IPv6 MTU overhead.
-# This will need to be changed once https://review.openstack.org/#/c/320121/
-# is fixed.
-OVN_GENEVE_OVERHEAD=${OVN_GENEVE_OVERHEAD:-58}
+# Whether or not to install the ovs python module from ovs source.  This can be
+# used to test and validate new ovs python features.  This should only be used
+# for development purposes since the ovs python version is controlled by OpenStack
+# requirements.
+OVN_INSTALL_OVS_PYTHON_MODULE=$(trueorfalse False OVN_INSTALL_OVS_PYTHON_MODULE)
+
+# GENEVE overlay protocol overhead. Defaults to 38 bytes plus the IP version
+# overhead (20 bytes for IPv4 (default) or 40 bytes for IPv6) which is determined
+# based on the ML2 overlay_ip_version option. The ML2 framework will use this to
+# configure the DHCP agent MTU option.
+OVN_GENEVE_OVERHEAD=${OVN_GENEVE_OVERHEAD:-38}
 
 # If using OVN_L3_MODE, this sets whether to create a public network and bridge.
 # If set to True, a public network and subnet(s) will be created, and a router
@@ -77,6 +82,14 @@ OVN_GENEVE_OVERHEAD=${OVN_GENEVE_OVERHEAD:-58}
 # NEUTRON_CREATE_INITIAL_NETWORKS is True (the default).  There are known issues
 # setting this to true in a multinode devstack setup
 OVN_L3_CREATE_PUBLIC_NETWORK=$(trueorfalse False OVN_L3_CREATE_PUBLIC_NETWORK)
+
+# ml2/config for neutron_sync_mode
+OVN_NEUTRON_SYNC_MODE=${OVN_NEUTRON_SYNC_MODE:-log}
+
+# If using OVN_L3_MODE, the type of OVN L3 Scheduler to use. The OVN L3
+# Scheduler determines the hypervisor/chassis where a routers gateway should
+# be hosted in OVN. The default OVN L3 scheduler is leastloaded
+OVN_L3_SCHEDULER=${OVN_L3_SCHEDULER:-leastloaded}
 
 # Neutron directory
 NEUTRON_DIR=$DEST/neutron
@@ -169,6 +182,11 @@ function configure_ovn_plugin {
         populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn ovn_nb_connection="$OVN_NB_REMOTE"
         populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn ovn_sb_connection="$OVN_SB_REMOTE"
         populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn ovn_l3_mode="$OVN_L3_MODE"
+        populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn neutron_sync_mode="$OVN_NEUTRON_SYNC_MODE"
+        if [[ "$OVN_L3_MODE" == "True" ]]; then
+            populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn ovn_l3_scheduler="$OVN_L3_SCHEDULER"
+        fi
+        populate_ml2_config /$Q_PLUGIN_CONF_FILE ovn ovn_native_dhcp="$OVN_NATIVE_DHCP"
         populate_ml2_config /$Q_PLUGIN_CONF_FILE securitygroup enable_security_group="$Q_USE_SECGROUP"
         inicomment /$Q_PLUGIN_CONF_FILE securitygroup firewall_driver
     fi
@@ -240,6 +258,12 @@ function install_ovn {
     compile_ovs $OVN_BUILD_MODULES
     sudo chown $(whoami) /usr/local/var/run/openvswitch
     sudo chown $(whoami) /usr/local/var/log/openvswitch
+
+    # Install ovs python module from ovs source.
+    if [[ "$OVN_INSTALL_OVS_PYTHON_MODULE" == "True" ]]; then
+        sudo pip uninstall -y ovs
+        sudo pip install -e $DEST/$OVS_REPO_NAME/python
+    fi
 }
 
 function start_ovs {
@@ -336,7 +360,7 @@ function start_ovs {
         # Bump up the max number of open files ovs-vswitchd can have
         sudo sh -c "ulimit -n 32000 && exec ovs-vswitchd --pidfile --detach -vconsole:off --log-file=$LOGDIR/ovs-vswitchd.log"
 
-        if is_provider_network; then
+        if is_provider_network || [[ $Q_USE_PROVIDERNET_FOR_PUBLIC == "True" ]]; then
             ovn_base_setup_bridge $OVS_PHYSICAL_BRIDGE
             ovs-vsctl set open . external-ids:ovn-bridge-mappings=${PHYSICAL_NETWORK}:${OVS_PHYSICAL_BRIDGE}
         fi
@@ -452,6 +476,14 @@ function create_public_bridge {
         local cidr_len=${FLOATING_RANGE#*/}
         sudo ip addr add $PUBLIC_NETWORK_GATEWAY/$cidr_len dev $ext_gw_ifc
     fi
+
+    # Ensure IPv6 RAs are accepted on the interface with the default route.
+    # This is needed for neutron-based devstack clouds to work in
+    # IPv6-only clouds in the gate. Please do not remove this without
+    # talking to folks in Infra. This fix is based on a devstack fix for
+    # neutron L3 agent: https://review.openstack.org/#/c/359490/.
+    default_route_dev=$(ip route | grep ^default | awk '{print $5}')
+    sudo sysctl -w net.ipv6.conf.$default_route_dev.accept_ra=2
 
     sudo sysctl -w net.ipv6.conf.all.forwarding=1
     if [ -n "$IPV6_PUBLIC_RANGE" ]; then

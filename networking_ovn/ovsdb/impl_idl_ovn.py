@@ -221,6 +221,10 @@ class OvsdbNbOvnIdl(ovn_api.API):
     def add_lrouter_port(self, name, lrouter, **columns):
         return cmd.AddLRouterPortCommand(self, name, lrouter, **columns)
 
+    def update_lrouter_port(self, name, lrouter, if_exists=True, **columns):
+        return cmd.UpdateLRouterPortCommand(self, name, lrouter,
+                                            if_exists, **columns)
+
     def delete_lrouter_port(self, name, lrouter, if_exists=True):
         return cmd.DelLRouterPortCommand(self, name, lrouter,
                                          if_exists)
@@ -249,6 +253,135 @@ class OvsdbNbOvnIdl(ovn_api.API):
         return cmd.DelStaticRouteCommand(self, lrouter, ip_prefix, nexthop,
                                          if_exists)
 
+    def create_address_set(self, name, may_exist=True, **columns):
+        return cmd.AddAddrSetCommand(self, name, may_exist, **columns)
+
+    def delete_address_set(self, name, if_exists=True, **columns):
+        return cmd.DelAddrSetCommand(self, name, if_exists)
+
+    def update_address_set(self, name, addrs_add, addrs_remove,
+                           if_exists=True):
+        return cmd.UpdateAddrSetCommand(self, name, addrs_add, addrs_remove,
+                                        if_exists)
+
+    def update_address_set_ext_ids(self, name, external_ids, if_exists=True):
+        return cmd.UpdateAddrSetExtIdsCommand(self, name, external_ids,
+                                              if_exists)
+
+    def get_all_chassis_router_bindings(self, chassis_candidate_list=None):
+        chassis_bindings = {}
+        for chassis_name in chassis_candidate_list or []:
+            chassis_bindings.setdefault(chassis_name, [])
+        for lrouter in self._tables['Logical_Router'].rows.values():
+            if ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY not in (
+                lrouter.external_ids):
+                continue
+            chassis_name = lrouter.options.get('chassis')
+            if not chassis_name:
+                continue
+            if (not chassis_candidate_list or
+                    chassis_name in chassis_candidate_list):
+                routers_hosted = chassis_bindings.setdefault(chassis_name, [])
+                routers_hosted.append(lrouter.name)
+        return chassis_bindings
+
+    def get_router_chassis_binding(self, router_name):
+        try:
+            router = idlutils.row_by_value(self.idl,
+                                           'Logical_Router',
+                                           'name',
+                                           router_name)
+            chassis_name = router.options.get('chassis')
+            if chassis_name == ovn_const.OVN_GATEWAY_INVALID_CHASSIS:
+                return None
+            else:
+                return chassis_name
+        except idlutils.RowNotFound:
+            return None
+
+    def get_unhosted_routers(self, valid_chassis_list):
+        unhosted_routers = {}
+        for lrouter in self._tables['Logical_Router'].rows.values():
+            if ovn_const.OVN_ROUTER_NAME_EXT_ID_KEY not in (
+                lrouter.external_ids):
+                continue
+            chassis_name = lrouter.options.get('chassis')
+            # TODO(azbiswas): Handle the case when a chassis is no
+            # longer valid. This may involve moving conntrack states,
+            # so it needs to discussed in the OVN community first.
+            if (chassis_name == ovn_const.OVN_GATEWAY_INVALID_CHASSIS or
+                    chassis_name not in valid_chassis_list):
+                unhosted_routers[lrouter.name] = lrouter.options
+        return unhosted_routers
+
+    def add_dhcp_options(self, subnet_id, port_id=None, may_exists=True,
+                         **columns):
+        return cmd.AddDHCPOptionsCommand(self, subnet_id, port_id=port_id,
+                                         may_exists=may_exists, **columns)
+
+    def delete_dhcp_options(self, row_uuid, if_exists=True):
+        return cmd.DelDHCPOptionsCommand(self, row_uuid, if_exists=if_exists)
+
+    def get_subnet_dhcp_options(self, subnet_id):
+        for row in self._tables['DHCP_Options'].rows.values():
+            external_ids = getattr(row, 'external_ids', {})
+            port_id = external_ids.get('port_id')
+            if subnet_id == external_ids.get('subnet_id') and not port_id:
+                return {'cidr': row.cidr, 'options': dict(row.options),
+                        'external_ids': dict(external_ids),
+                        'uuid': row.uuid}
+        return None
+
+    def get_port_dhcp_options(self, subnet_id, port_id):
+        for row in self._tables['DHCP_Options'].rows.values():
+            external_ids = getattr(row, 'external_ids', {})
+            if subnet_id == external_ids.get('subnet_id') and (
+                    port_id == external_ids.get('port_id')):
+                return {'cidr': row.cidr, 'options': dict(row.options),
+                        'external_ids': dict(external_ids),
+                        'uuid': row.uuid}
+        return None
+
+    def compose_dhcp_options_commands(self, subnet_id, **columns):
+        # First add the subnet DHCP options.
+        commands = [self.add_dhcp_options(subnet_id, **columns)]
+
+        # Check if there are any port DHCP options which
+        # belongs to this 'subnet_id' and frame the commands to update them.
+        port_dhcp_options = []
+        for row in self._tables['DHCP_Options'].rows.values():
+            external_ids = getattr(row, 'external_ids', {})
+            port_id = external_ids.get('port_id')
+            if subnet_id == external_ids.get('subnet_id'):
+                if port_id:
+                    port_dhcp_options.append({'port_id': port_id,
+                                             'port_dhcp_opts': row.options})
+
+        for port_dhcp_opt in port_dhcp_options:
+            if columns.get('options'):
+                updated_opts = dict(columns['options'])
+                updated_opts.update(port_dhcp_opt['port_dhcp_opts'])
+            else:
+                updated_opts = {}
+            commands.append(
+                self.add_dhcp_options(subnet_id,
+                                      port_id=port_dhcp_opt['port_id'],
+                                      options=updated_opts))
+
+        return commands
+
+    def get_address_sets(self):
+        address_sets = {}
+        for row in self._tables['Address_Set'].rows.values():
+            if ovn_const.OVN_SG_NAME_EXT_ID_KEY not in (row.external_ids):
+                continue
+            name = getattr(row, 'name')
+            data = {}
+            for row_key in six.iterkeys(getattr(row, "_data", {})):
+                data[row_key] = getattr(row, row_key)
+            address_sets[name] = data
+        return address_sets
+
 
 class OvsdbSbOvnIdl(ovn_api.SbAPI):
 
@@ -264,6 +397,8 @@ class OvsdbSbOvnIdl(ovn_api.SbAPI):
             # We only need to know the content of Chassis in OVN_Southbound
             OvsdbSbOvnIdl.ovsdb_connection.start(driver,
                                                  table_name_list=['Chassis'])
+        else:
+            OvsdbSbOvnIdl.ovsdb_connection.start()
         self.idl = OvsdbSbOvnIdl.ovsdb_connection.idl
         self.ovsdb_timeout = cfg.get_ovn_ovsdb_timeout()
 
@@ -274,3 +409,11 @@ class OvsdbSbOvnIdl(ovn_api.SbAPI):
             mapping_dict = n_utils.parse_mappings(bridge_mappings.split(','))
             chassis_info_dict[ch.hostname] = mapping_dict.keys()
         return chassis_info_dict
+
+    def get_all_chassis(self, chassis_type=None):
+        # TODO(azbiswas): Use chassis_type as input once the compute type
+        # preference patch (as part of external ids) merges.
+        chassis_list = []
+        for ch in self.idl.tables['Chassis'].rows.values():
+            chassis_list.append(ch.name)
+        return chassis_list

@@ -16,6 +16,7 @@ import six
 OVN_NETWORK_NAME_EXT_ID_KEY = 'neutron:network_name'
 OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_ROUTER_NAME_EXT_ID_KEY = 'neutron:router_name'
+OVN_SG_NAME_EXT_ID_KEY = 'neutron:security_group_name'
 OVN_PHYSNET_EXT_ID_KEY = 'neutron:provnet-physical-network'
 OVN_NETTYPE_EXT_ID_KEY = 'neutron:provnet-network-type'
 OVN_SEGID_EXT_ID_KEY = 'neutron:provnet-segmentation-id'
@@ -36,3 +37,9 @@ ACL_PRIORITY_DROP = 1001
 ACL_ACTION_DROP = 'drop'
 ACL_ACTION_ALLOW_RELATED = 'allow-related'
 ACL_ACTION_ALLOW = 'allow'
+
+# When a OVN L3 gateway is created, it needs to be bound to a chassis. In
+# case a chassis is not found OVN_GATEWAY_INVALID_CHASSIS will be set in
+# the options column of the Logical Router. This value is used to detect
+# unhosted router gateways to schedule.
+OVN_GATEWAY_INVALID_CHASSIS = 'neutron-ovn-invalid-chassis'

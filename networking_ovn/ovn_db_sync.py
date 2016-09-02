@@ -23,10 +23,12 @@ from neutron import context
 from neutron.extensions import providernet as pnet
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
+from neutron.services.segments import db as segments_db
 
 from networking_ovn._i18n import _LW
 from networking_ovn.common import acl as acl_utils
 from networking_ovn.common import config
+from networking_ovn.common import constants as const
 from networking_ovn.common import utils
 import six
 
@@ -73,6 +75,7 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
         LOG.debug("Starting OVN-Northbound DB sync process")
 
         ctx = context.get_admin_context()
+        self.sync_address_sets(ctx)
         self.sync_networks_and_ports(ctx)
         self.sync_acls(ctx)
         self.sync_routers_and_rports(ctx)
@@ -90,6 +93,13 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
         self.ovn_driver.create_network_in_ovn(net, {}, physnet, segid)
 
     def _create_port_in_ovn(self, ctx, port):
+        # Remove any old ACLs for the port to avoid creating duplicate ACLs.
+        self.ovn_api.delete_acl(
+            utils.ovn_name(port['network_id']),
+            port['id']).execute(check_error=True)
+
+        # Create the port in OVN. This will include ACL and Address Set
+        # updates as needed.
         ovn_port_info = self.ovn_driver.get_ovn_port_options(port)
         self.ovn_driver.create_port_in_ovn(port, ovn_port_info)
 
@@ -107,6 +117,24 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                 if port in nb_acls and acl in nb_acls[port]:
                     neutron_acls[port].remove(acl)
                     nb_acls[port].remove(acl)
+
+    def compute_address_set_difference(self, neutron_sgs, nb_sgs):
+        neutron_sgs_name_set = set(neutron_sgs.keys())
+        nb_sgs_name_set = set(nb_sgs.keys())
+        sgnames_to_add = list(neutron_sgs_name_set - nb_sgs_name_set)
+        sgnames_to_delete = list(nb_sgs_name_set - neutron_sgs_name_set)
+        sgs_common = list(neutron_sgs_name_set & nb_sgs_name_set)
+        sgs_to_update = {}
+        for sg_name in sgs_common:
+            neutron_addr_set = set(neutron_sgs[sg_name]['addresses'])
+            nb_addr_set = set(nb_sgs[sg_name]['addresses'])
+            addrs_to_add = list(neutron_addr_set - nb_addr_set)
+            addrs_to_delete = list(nb_addr_set - neutron_addr_set)
+            if addrs_to_add or addrs_to_delete:
+                sgs_to_update[sg_name] = {'name': sg_name,
+                                          'addrs_add': addrs_to_add,
+                                          'addrs_remove': addrs_to_delete}
+        return sgnames_to_add, sgnames_to_delete, sgs_to_update
 
     def get_acls(self, context):
         """create the list of ACLS in OVN.
@@ -139,6 +167,64 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                 acl_list_dict[key] = list([acl])
         return acl_list_dict
 
+    def get_address_sets(self):
+        return self.ovn_api.get_address_sets()
+
+    def sync_address_sets(self, ctx):
+        """Sync Address Sets between neutron and NB.
+
+        @param ctx: neutron context
+        @type  ctx: object of type neutron.context.Context
+        @var   db_ports: List of ports from neutron DB
+        """
+        LOG.debug('Address-Set-SYNC: started @ %s' % str(datetime.now()))
+
+        neutron_sgs = {}
+        with ctx.session.begin(subtransactions=True):
+            db_sgs = self.core_plugin.get_security_groups(ctx)
+            db_ports = self.core_plugin.get_ports(ctx)
+
+        for sg in db_sgs:
+            for ip_version in ['ip4', 'ip6']:
+                name = utils.ovn_addrset_name(sg['id'], ip_version)
+                neutron_sgs[name] = {
+                    'name': name, 'addresses': [],
+                    'external_ids': {const.OVN_SG_NAME_EXT_ID_KEY:
+                                     sg['name']}}
+
+        for port in db_ports:
+            sg_ids = port.get('security_groups', [])
+            if port.get('fixed_ips') and sg_ids:
+                addresses = acl_utils.acl_port_ips(port)
+                for sg_id in sg_ids:
+                    for ip_version in addresses:
+                        name = utils.ovn_addrset_name(sg_id, ip_version)
+                        neutron_sgs[name]['addresses'].extend(
+                            addresses[ip_version])
+
+        nb_sgs = self.get_address_sets()
+
+        sgnames_to_add, sgnames_to_delete, sgs_to_update =\
+            self.compute_address_set_difference(neutron_sgs, nb_sgs)
+
+        LOG.debug('Address_Sets added %d, removed %d, updated %d',
+                  len(sgnames_to_add), len(sgnames_to_delete),
+                  len(sgs_to_update))
+
+        if self.mode == SYNC_MODE_REPAIR:
+            LOG.debug('Address-Set-SYNC: transaction started @ %s' %
+                      str(datetime.now()))
+            with self.ovn_api.transaction(check_error=True) as txn:
+                for sgname in sgnames_to_add:
+                    sg = neutron_sgs[sgname]
+                    txn.add(self.ovn_api.create_address_set(**sg))
+                for sgname, sg in six.iteritems(sgs_to_update):
+                    txn.add(self.ovn_api.update_address_set(**sg))
+                for sgname in sgnames_to_delete:
+                    txn.add(self.ovn_api.delete_address_set(name=sgname))
+            LOG.debug('Address-Set-SYNC: transaction finished @ %s' %
+                      str(datetime.now()))
+
     def sync_acls(self, ctx):
         """Sync ACLs between neutron and NB.
 
@@ -149,44 +235,36 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                vs list-of-acls
         @var   nb_acls: NB dictionary of port
                vs list-of-acls
-        @var   sg_ports_cache: cache for sg_ports
         @var   subnet_cache: cache for subnets
         @return: Nothing
         """
         LOG.debug('ACL-SYNC: started @ %s' %
                   str(datetime.now()))
+
         db_ports = {}
         for port in self.core_plugin.get_ports(ctx):
             db_ports[port['id']] = port
 
         sg_cache = {}
-        sg_ports_cache = {}
         subnet_cache = {}
         neutron_acls = {}
-        for port_id, port in db_ports.items():
+        for port_id, port in six.iteritems(db_ports):
             if port['security_groups']:
+                acl_list = acl_utils.add_acls(self.core_plugin,
+                                              ctx,
+                                              port,
+                                              sg_cache,
+                                              subnet_cache)
                 if port_id in neutron_acls:
-                    neutron_acls[port_id].extend(
-                        acl_utils.add_acls(self.core_plugin,
-                                           ctx,
-                                           port,
-                                           sg_cache,
-                                           sg_ports_cache,
-                                           subnet_cache))
+                    neutron_acls[port_id].extend(acl_list)
                 else:
-                    neutron_acls[port_id] = \
-                        acl_utils.add_acls(self.core_plugin,
-                                           ctx,
-                                           port,
-                                           sg_cache,
-                                           sg_ports_cache,
-                                           subnet_cache)
+                    neutron_acls[port_id] = acl_list
 
         nb_acls = self.get_acls(ctx)
 
         self.remove_common_acls(neutron_acls, nb_acls)
 
-        LOG.debug('ACLs-to-be-addded %d ACLs-to-be-removed %d' %
+        LOG.debug('ACLs-to-be-added %d ACLs-to-be-removed %d' %
                   (len(list(itertools.chain(*six.itervalues(neutron_acls)))),
                    len(list(itertools.chain(*six.itervalues(nb_acls))))))
 
@@ -319,9 +397,9 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                             if_exists=False))
             for sroute in update_sroutes_list:
                 if sroute['add']:
-                    LOG.warning("Router %s static routes %s found in "
-                                "Neutron but not in OVN", sroute['id'],
-                                sroute['add'])
+                    LOG.warning(_LW("Router %(id)s static routes %(route)s "
+                                    "found in Neutron but not in OVN"),
+                                {'id': sroute['id'], 'route': sroute['add']})
                     if self.mode == SYNC_MODE_REPAIR:
                         LOG.warning(_LW("Add static routes %s to OVN NB DB"),
                                     sroute['add'])
@@ -331,9 +409,9 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
                                 ip_prefix=route['destination'],
                                 nexthop=route['nexthop']))
                 if sroute['del']:
-                    LOG.warning("Router %s static routes %s found in "
-                                "OVN but not in Neutron", sroute['id'],
-                                sroute['del'])
+                    LOG.warning(_LW("Router %(id)s static routes %(route)s "
+                                    "found in OVN but not in Neutron"),
+                                {'id': sroute['id'], 'route': sroute['del']})
                     if self.mode == SYNC_MODE_REPAIR:
                         LOG.warning(_LW("Delete static routes %s from OVN "
                                         "NB DB"), sroute['del'])
@@ -418,6 +496,12 @@ class OvnNbSynchronizer(OvnDbSynchronizer):
 class OvnSbSynchronizer(OvnDbSynchronizer):
     """Synchronizer class for SB."""
 
+    def __init__(self, core_plugin, ovn_api, ovn_driver):
+        super(OvnSbSynchronizer, self).__init__(
+            core_plugin, ovn_api, ovn_driver)
+        self.l3_plugin = manager.NeutronManager.get_service_plugins().get(
+            service_constants.L3_ROUTER_NAT)
+
     def _sync(self):
         """Method to sync the OVN_Southbound DB with neutron DB.
 
@@ -431,13 +515,34 @@ class OvnSbSynchronizer(OvnDbSynchronizer):
 
         ctx = context.get_admin_context()
         self.sync_hostname_and_physical_networks(ctx)
+        if config.is_ovn_l3():
+            self.l3_plugin.schedule_unhosted_routers()
 
     def sync_hostname_and_physical_networks(self, ctx):
         LOG.debug('OVN-SB Sync hostname and physical networks started')
         host_phynets_map = self.ovn_api.get_chassis_hostname_and_physnets()
-        # TODO(xiaohhui): There is no function in neutron to check the existing
-        # SegmentHostMapping. So update to neutron will always be triggered.
-        # Neutron will update the DB if necessary.
-        for host, phynets in six.iteritems(host_phynets_map):
-            self.ovn_driver.update_segment_host_mapping(host, phynets)
+        current_hosts = set(host_phynets_map)
+        previous_hosts = segments_db.get_hosts_mapped_with_segments(ctx)
+
+        stale_hosts = previous_hosts - current_hosts
+        for host in stale_hosts:
+            LOG.debug('Stale host %s found in Neutron, but not in OVN SB DB. '
+                      'Clear its SegmentHostMapping in Neutron', host)
+            self.ovn_driver.update_segment_host_mapping(host, [])
+
+        new_hosts = current_hosts - previous_hosts
+        for host in new_hosts:
+            LOG.debug('New host %s found in OVN SB DB, but not in Neutron. '
+                      'Add its SegmentHostMapping in Neutron', host)
+            self.ovn_driver.update_segment_host_mapping(
+                host, host_phynets_map[host])
+
+        for host in current_hosts & previous_hosts:
+            LOG.debug('Host %s found both in OVN SB DB and Neutron. '
+                      'Trigger updating its SegmentHostMapping in Neutron, '
+                      'to keep OVN SB DB and Neutron have consistent data',
+                      host)
+            self.ovn_driver.update_segment_host_mapping(
+                host, host_phynets_map[host])
+
         LOG.debug('OVN-SB Sync hostname and physical networks finished')

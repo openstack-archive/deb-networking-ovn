@@ -13,18 +13,22 @@
 #
 
 import collections
+import netaddr
 
 from neutron_lib.api import validators
 from neutron_lib import constants as const
 from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log
+import six
 
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.common import utils as n_utils
 from neutron import context as n_context
 from neutron.db import provisioning_blocks
+from neutron.extensions import extra_dhcp_opt as edo_ext
 from neutron.extensions import multiprovidernet as mpnet
 from neutron.extensions import portbindings
 from neutron.extensions import portsecurity as psec
@@ -51,7 +55,8 @@ LOG = log.getLogger(__name__)
 OvnPortInfo = collections.namedtuple('OvnPortInfo', ['type', 'options',
                                                      'addresses',
                                                      'port_security',
-                                                     'parent_name', 'tag'])
+                                                     'parent_name', 'tag',
+                                                     'dhcpv4_options'])
 
 
 class OVNMechanismDriver(driver_api.MechanismDriver):
@@ -94,6 +99,7 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
         self._setup_vif_port_bindings()
         self.subscribe()
         self.qos_driver = qos_driver.OVNQosDriver(self)
+        self._init_dhcp_opt_codes()
 
     @property
     def _plugin(self):
@@ -124,20 +130,39 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
                 portbindings.CAP_PORT_FILTER: self.sg_enabled,
             }
 
+    def _init_dhcp_opt_codes(self):
+        self._supported_dhcp_opts = [
+            'netmask', 'router', 'dns-server', 'log-server',
+            'lpr-server', 'swap-server', 'ip-forward-enable',
+            'policy-filter', 'default-ttl', 'mtu', 'router-discovery',
+            'router-solicitation', 'arp-timeout', 'ethernet-encap',
+            'tcp-ttl', 'tcp-keepalive', 'nis-server', 'ntp-server',
+            'tftp-server']
+
     def subscribe(self):
         registry.subscribe(self.post_fork_initialize,
                            resources.PROCESS,
                            events.AFTER_INIT)
 
+        registry.subscribe(self._add_segment_host_mapping_for_segment,
+                           resources.SEGMENT,
+                           events.PRECOMMIT_CREATE)
+
         # Handle security group/rule notifications
         if self.sg_enabled:
             registry.subscribe(self._process_sg_notification,
                                resources.SECURITY_GROUP,
-                               events.AFTER_UPDATE)
-            registry.subscribe(self._process_sg_notification,
-                               resources.SECURITY_GROUP_RULE,
                                events.AFTER_CREATE)
             registry.subscribe(self._process_sg_notification,
+                               resources.SECURITY_GROUP,
+                               events.AFTER_UPDATE)
+            registry.subscribe(self._process_sg_notification,
+                               resources.SECURITY_GROUP,
+                               events.BEFORE_DELETE)
+            registry.subscribe(self._process_sg_rule_notification,
+                               resources.SECURITY_GROUP_RULE,
+                               events.AFTER_CREATE)
+            registry.subscribe(self._process_sg_rule_notification,
                                resources.SECURITY_GROUP_RULE,
                                events.BEFORE_DELETE)
 
@@ -167,22 +192,37 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
             self.sb_synchronizer.sync()
 
     def _process_sg_notification(self, resource, event, trigger, **kwargs):
+        sg = kwargs.get('security_group')
+        external_ids = {ovn_const.OVN_SG_NAME_EXT_ID_KEY: sg['name']}
+        with self._nb_ovn.transaction(check_error=True) as txn:
+            for ip_version in ['ip4', 'ip6']:
+                if event == events.AFTER_CREATE:
+                    txn.add(self._nb_ovn.create_address_set(
+                            name=utils.ovn_addrset_name(sg['id'], ip_version),
+                            external_ids=external_ids))
+                elif event == events.AFTER_UPDATE:
+                    txn.add(self._nb_ovn.update_address_set_ext_ids(
+                            name=utils.ovn_addrset_name(sg['id'], ip_version),
+                            external_ids=external_ids))
+                elif event == events.BEFORE_DELETE:
+                    txn.add(self._nb_ovn.delete_address_set(
+                            name=utils.ovn_addrset_name(sg['id'], ip_version)))
+
+    def _process_sg_rule_notification(
+            self, resource, event, trigger, **kwargs):
         sg_id = None
         sg_rule = None
         is_add_acl = True
 
         admin_context = n_context.get_admin_context()
-        if resource == resources.SECURITY_GROUP:
-            sg_id = kwargs.get('security_group_id')
-        elif resource == resources.SECURITY_GROUP_RULE:
-            if event == events.AFTER_CREATE:
-                sg_rule = kwargs.get('security_group_rule')
-                sg_id = sg_rule['security_group_id']
-            elif event == events.BEFORE_DELETE:
-                sg_rule = self._plugin.get_security_group_rule(
-                    admin_context, kwargs.get('security_group_rule_id'))
-                sg_id = sg_rule['security_group_id']
-                is_add_acl = False
+        if event == events.AFTER_CREATE:
+            sg_rule = kwargs.get('security_group_rule')
+            sg_id = sg_rule['security_group_id']
+        elif event == events.BEFORE_DELETE:
+            sg_rule = self._plugin.get_security_group_rule(
+                admin_context, kwargs.get('security_group_rule_id'))
+            sg_id = sg_rule['security_group_id']
+            is_add_acl = False
 
         # TODO(russellb) It's possible for Neutron and OVN to get out of sync
         # here. If updating ACls fails somehow, we're out of sync until another
@@ -191,7 +231,7 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
                                                admin_context,
                                                self._nb_ovn,
                                                sg_id,
-                                               rule=sg_rule,
+                                               sg_rule,
                                                is_add_acl=is_add_acl)
 
     def create_network_precommit(self, context):
@@ -319,6 +359,88 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
             utils.ovn_name(network['id']), if_exists=True).execute(
                 check_error=True)
 
+    def create_subnet_postcommit(self, context):
+        subnet = context.current
+        if subnet['enable_dhcp'] and config.is_ovn_dhcp():
+            self.add_subnet_dhcp_options_in_ovn(subnet,
+                                                context.network.current)
+
+    def update_subnet_postcommit(self, context):
+        subnet = context.current
+        if config.is_ovn_dhcp() and (
+            subnet['enable_dhcp'] or context.original['enable_dhcp']):
+            self.add_subnet_dhcp_options_in_ovn(subnet,
+                                                context.network.current)
+
+    def delete_subnet_postcommit(self, context):
+        subnet = context.current
+        if config.is_ovn_dhcp():
+            with self._nb_ovn.transaction(check_error=True) as txn:
+                subnet_dhcp_options = self._nb_ovn.get_subnet_dhcp_options(
+                    subnet['id'])
+                if subnet_dhcp_options:
+                    txn.add(self._nb_ovn.delete_dhcp_options(
+                        subnet_dhcp_options['uuid']))
+
+    def add_subnet_dhcp_options_in_ovn(self, subnet, network):
+        ovn_dhcp_options = self._get_ovn_dhcp_options(subnet, network)
+
+        txn_commands = self._nb_ovn.compose_dhcp_options_commands(
+            subnet['id'], **ovn_dhcp_options)
+        with self._nb_ovn.transaction(check_error=True) as txn:
+            for cmd in txn_commands:
+                txn.add(cmd)
+
+    def _get_ovn_dhcp_options(self, subnet, network):
+        external_ids = {'subnet_id': subnet['id']}
+        dhcp_options = {'cidr': subnet['cidr'], 'options': {},
+                        'external_ids': external_ids}
+
+        if subnet['ip_version'] == 4 and subnet['enable_dhcp']:
+            dhcp_options['options'] = self._get_ovn_dhcpv4_opts(subnet,
+                                                                network)
+
+        return dhcp_options
+
+    def _get_ovn_dhcpv4_opts(self, subnet, network):
+        if not subnet['gateway_ip']:
+            return {}
+
+        default_lease_time = str(config.get_ovn_dhcp_default_lease_time())
+        mtu = network['mtu']
+        options = {
+            'server_id': subnet['gateway_ip'],
+            'server_mac': n_utils.get_random_mac(cfg.CONF.base_mac.split(':')),
+            'lease_time': default_lease_time,
+            'mtu': str(mtu),
+            'router': subnet['gateway_ip']
+        }
+
+        if subnet['dns_nameservers']:
+            dns_servers = '{'
+            for dns in subnet["dns_nameservers"]:
+                dns_servers += dns + ', '
+            dns_servers = dns_servers.strip(', ')
+            dns_servers += '}'
+            options['dns_server'] = dns_servers
+
+        # If subnet hostroutes are defined, add them in the
+        # 'classless_static_route' dhcp option
+        classless_static_routes = "{"
+        for route in subnet['host_routes']:
+            classless_static_routes += ("%s,%s, ") % (
+                route['destination'], route['nexthop'])
+
+        if classless_static_routes != "{":
+            # if there are static routes, then we need to add the
+            # default route in this option. As per RFC 3442 dhcp clients
+            # should ignore 'router' dhcp option (option 3)
+            # if option 121 is present.
+            classless_static_routes += "0.0.0.0/0,%s}" % (subnet['gateway_ip'])
+            options['classless_static_route'] = classless_static_routes
+
+        return options
+
     def create_port_precommit(self, context):
         """Allocate resources for a new port.
 
@@ -331,12 +453,6 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
         """
         self.validate_and_get_data_from_binding_profile(context.current)
 
-    # TODO(rtheis): The neutron ML2 plugin does not provide drivers with
-    # an interface to validate port bindings before the precommit stage.
-    # As a result, the plugin will map a validate error here to a
-    # MechanismDriverError. This makes it harder for users to determine
-    # mistakes in the binding profile. Refactor this as needed based
-    # on resolution to https://bugs.launchpad.net/neutron/+bug/1589622.
     def validate_and_get_data_from_binding_profile(self, port):
         if (ovn_const.OVN_PORT_BINDING_PROFILE not in port or
                 not validators.is_attr_set(
@@ -448,7 +564,7 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
 
         return list(allowed_addresses)
 
-    def get_ovn_port_options(self, port, qos_options=None):
+    def get_ovn_port_options(self, port, qos_options=None, original_port=None):
         binding_profile = self.validate_and_get_data_from_binding_profile(port)
         if qos_options is None:
             qos_options = self.qos_driver.get_qos_options(port)
@@ -473,15 +589,20 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
                 addresses += ' ' + ip['ip_address']
             port_security = self._get_allowed_addresses_from_port(port)
 
+        port_dhcpv4_options_info = self._get_port_dhcpv4_options(
+            port, original_port=original_port)
+        dhcpv4_options = []
+        if port_dhcpv4_options_info and 'uuid' in port_dhcpv4_options_info:
+            dhcpv4_options = [port_dhcpv4_options_info['uuid']]
+
         return OvnPortInfo(port_type, options, [addresses], port_security,
-                           parent_name, tag)
+                           parent_name, tag, dhcpv4_options)
 
     def create_port_in_ovn(self, port, ovn_port_info):
         external_ids = {ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port['name']}
         lswitch_name = utils.ovn_name(port['network_id'])
         admin_context = n_context.get_admin_context()
         sg_cache = {}
-        sg_ports_cache = {}
         subnet_cache = {}
 
         with self._nb_ovn.transaction(check_error=True) as txn:
@@ -498,19 +619,28 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
                     enabled=port.get('admin_state_up'),
                     options=ovn_port_info.options,
                     type=ovn_port_info.type,
-                    port_security=ovn_port_info.port_security))
+                    port_security=ovn_port_info.port_security,
+                    dhcpv4_options=ovn_port_info.dhcpv4_options))
+
             acls_new = ovn_acl.add_acls(self._plugin, admin_context,
-                                        port, sg_cache, sg_ports_cache,
-                                        subnet_cache)
+                                        port, sg_cache, subnet_cache)
             for acl in acls_new:
                 txn.add(self._nb_ovn.add_acl(**acl))
 
-        if len(port.get('fixed_ips')):
-            for sg_id in port.get('security_groups', []):
-                ovn_acl.refresh_remote_security_group(
-                    self._plugin, admin_context, self._nb_ovn,
-                    sg_id, sg_cache, sg_ports_cache,
-                    subnet_cache, [port['id']])
+            sg_ids = port.get('security_groups', [])
+            if port.get('fixed_ips') and sg_ids:
+                addresses = ovn_acl.acl_port_ips(port)
+                # NOTE(rtheis): Fail port creation if the address set doesn't
+                # exist. This prevents ports from being created on any security
+                # groups out-of-sync between neutron and OVN.
+                for sg_id in sg_ids:
+                    for ip_version in addresses:
+                        if addresses[ip_version]:
+                            txn.add(self._nb_ovn.update_address_set(
+                                name=utils.ovn_addrset_name(sg_id, ip_version),
+                                addrs_add=addresses[ip_version],
+                                addrs_remove=None,
+                                if_exists=False))
 
     def update_port_precommit(self, context):
         """Update resources of a port.
@@ -550,7 +680,8 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
         self.update_port(port, original_port)
 
     def update_port(self, port, original_port, qos_options=None):
-        ovn_port_info = self.get_ovn_port_options(port, qos_options)
+        ovn_port_info = self.get_ovn_port_options(port, qos_options,
+                                                  original_port=original_port)
         self._update_port_in_ovn(original_port, port, ovn_port_info)
 
     def _update_port_in_ovn(self, original_port, port, ovn_port_info):
@@ -558,7 +689,6 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
             ovn_const.OVN_PORT_NAME_EXT_ID_KEY: port['name']}
         admin_context = n_context.get_admin_context()
         sg_cache = {}
-        sg_ports_cache = {}
         subnet_cache = {}
 
         with self._nb_ovn.transaction(check_error=True) as txn:
@@ -571,49 +701,161 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
                     type=ovn_port_info.type,
                     options=ovn_port_info.options,
                     enabled=port['admin_state_up'],
-                    port_security=ovn_port_info.port_security))
-            # Note that the ovsdb IDL suppresses the transaction down to what
-            # has actually changed.
-            txn.add(self._nb_ovn.delete_acl(
-                    utils.ovn_name(port['network_id']),
-                    port['id']))
-            acls_new = ovn_acl.add_acls(self._plugin,
-                                        admin_context,
-                                        port,
-                                        sg_cache,
-                                        sg_ports_cache,
-                                        subnet_cache)
-            for acl in acls_new:
-                txn.add(self._nb_ovn.add_acl(**acl))
+                    port_security=ovn_port_info.port_security,
+                    dhcpv4_options=ovn_port_info.dhcpv4_options))
 
-        # Refresh remote security groups for changed security groups
-        old_sg_ids = set(original_port.get('security_groups', []))
-        new_sg_ids = set(port.get('security_groups', []))
-        detached_sg_ids = old_sg_ids - new_sg_ids
-        attached_sg_ids = new_sg_ids - old_sg_ids
+            # Determine if security groups or fixed IPs are updated.
+            old_sg_ids = set(original_port.get('security_groups', []))
+            new_sg_ids = set(port.get('security_groups', []))
+            detached_sg_ids = old_sg_ids - new_sg_ids
+            attached_sg_ids = new_sg_ids - old_sg_ids
+            is_fixed_ips_updated = \
+                original_port.get('fixed_ips') != port.get('fixed_ips')
 
-        if (len(port.get('fixed_ips')) == 0 and
-                len(original_port.get('fixed_ips')) == 0):
-            # No need to process remote security group if the port
-            # didn't have any IP Addresses.
-            return port
+            # Refresh ACLs for changed security groups or fixed IPs.
+            if detached_sg_ids or attached_sg_ids or is_fixed_ips_updated:
+                # Note that update_acls will compare the port's ACLs to
+                # ensure only the necessary ACLs are added and deleted
+                # on the transaction.
+                acls_new = ovn_acl.add_acls(self._plugin,
+                                            admin_context,
+                                            port,
+                                            sg_cache,
+                                            subnet_cache)
+                txn.add(self._nb_ovn.update_acls([port['network_id']],
+                                                 [port],
+                                                 {port['id']: acls_new},
+                                                 need_compare=True))
 
-        for sg_id in (attached_sg_ids | detached_sg_ids):
-            ovn_acl.refresh_remote_security_group(
-                self._plugin, admin_context, self._nb_ovn, sg_id,
-                sg_cache, sg_ports_cache,
-                subnet_cache, [port['id']])
+            # Refresh address sets for changed security groups or fixed IPs.
+            if (len(port.get('fixed_ips')) != 0 or
+                    len(original_port.get('fixed_ips')) != 0):
+                addresses = ovn_acl.acl_port_ips(port)
+                addresses_old = ovn_acl.acl_port_ips(original_port)
+                # Add current addresses to attached security groups.
+                for sg_id in attached_sg_ids:
+                    for ip_version in addresses:
+                        if addresses[ip_version]:
+                            txn.add(self._nb_ovn.update_address_set(
+                                name=utils.ovn_addrset_name(sg_id, ip_version),
+                                addrs_add=addresses[ip_version],
+                                addrs_remove=None))
+                # Remove old addresses from detached security groups.
+                for sg_id in detached_sg_ids:
+                    for ip_version in addresses_old:
+                        if addresses_old[ip_version]:
+                            txn.add(self._nb_ovn.update_address_set(
+                                name=utils.ovn_addrset_name(sg_id, ip_version),
+                                addrs_add=None,
+                                addrs_remove=addresses_old[ip_version]))
 
-        # Refresh remote security groups if remote_group_match_ip is set
-        if original_port.get('fixed_ips') != port.get('fixed_ips'):
-            # We have refreshed attached and detached security groups, so
-            # now we only need to take care of unchanged security groups.
-            unchanged_sg_ids = new_sg_ids & old_sg_ids
-            for sg_id in unchanged_sg_ids:
-                ovn_acl.refresh_remote_security_group(
-                    self._plugin, admin_context, self._nb_ovn, sg_id,
-                    sg_cache, sg_ports_cache,
-                    subnet_cache, [port['id']])
+                if is_fixed_ips_updated:
+                    # We have refreshed address sets for attached and detached
+                    # security groups, so now we only need to take care of
+                    # unchanged security groups.
+                    unchanged_sg_ids = new_sg_ids & old_sg_ids
+                    for sg_id in unchanged_sg_ids:
+                        for ip_version in addresses:
+                            addr_add = (set(addresses[ip_version]) -
+                                        set(addresses_old[ip_version])) or None
+                            addr_remove = (set(addresses_old[ip_version]) -
+                                           set(addresses[ip_version])) or None
+
+                            if addr_add or addr_remove:
+                                txn.add(self._nb_ovn.update_address_set(
+                                        name=utils.ovn_addrset_name(
+                                            sg_id, ip_version),
+                                        addrs_add=addr_add,
+                                        addrs_remove=addr_remove))
+
+            if not ovn_port_info.dhcpv4_options:
+                # Check if the DHCP_Options row exist for this port.
+                # We need to delete it as it is no longer referenced by this
+                # port.
+                cmd = self._get_delete_lsp_dhcpv4_options_cmd(port)
+                if cmd:
+                    txn.add(cmd)
+
+    def _get_delete_lsp_dhcpv4_options_cmd(self, port):
+        lsp_dhcp_options = None
+        for fixed_ip in port['fixed_ips']:
+            if netaddr.IPAddress(fixed_ip['ip_address']).version == 4:
+                lsp_dhcp_options = self._nb_ovn.get_port_dhcp_options(
+                    fixed_ip['subnet_id'], port['id'])
+                if lsp_dhcp_options:
+                    break
+
+        if lsp_dhcp_options:
+            # Delete the DHCP_Options row created for this port.
+            # A separate DHCP_Options row would have be created since the port
+            # has extra DHCP options defined.
+            return self._nb_ovn.delete_dhcp_options(lsp_dhcp_options['uuid'])
+
+    def _get_port_dhcpv4_options(self, port, original_port=None):
+        lsp_dhcpv4_options = {}
+        lsp_dhcp_disabled = False
+        for edo in port.get(edo_ext.EXTRADHCPOPTS, []):
+            if edo['opt_name'] == 'dhcp_disabled' and (
+                    edo['opt_value'] in ['True', 'true']):
+                # OVN native DHCPv4 is disabled on this port
+                lsp_dhcp_disabled = True
+                break
+
+            if edo['ip_version'] != 4 or (
+                edo['opt_name'] not in self._supported_dhcp_opts):
+                continue
+
+            opt = edo['opt_name'].replace('-', '_')
+            lsp_dhcpv4_options[opt] = edo['opt_value']
+
+        if lsp_dhcp_disabled:
+            return
+
+        # If the port has multiple IPv4 addresses, DHCPv4 options are set
+        # for the first address in port['fixed_ips']
+        subnet_dhcp_options = None
+        subnet_id = None
+        for fixed_ip in port['fixed_ips']:
+            if netaddr.IPAddress(fixed_ip['ip_address']).version == 4:
+                subnet_dhcp_options = self._nb_ovn.get_subnet_dhcp_options(
+                    fixed_ip['subnet_id'])
+                subnet_id = fixed_ip['subnet_id']
+                if subnet_dhcp_options:
+                    break
+
+        if not subnet_dhcp_options:
+            # Ideally this should not happen.
+            # May be a sync is required in such cases ?
+            return
+
+        if not lsp_dhcpv4_options:
+            if original_port and original_port.get(edo_ext.EXTRADHCPOPTS, []):
+                # Extra DHCP options were define for this port.
+                # Delete the DHCP_Options row created for this port earlier.
+                cmd = self._get_delete_lsp_dhcpv4_options_cmd(original_port)
+                if cmd:
+                    with self._nb_ovn.transaction(check_error=True) as txn:
+                        txn.add(cmd)
+            return subnet_dhcp_options
+
+        # This port has extra DHCP options defined.
+        # So we need to create a new row in DHCP_Options table for this
+        # port.
+        # TODO(numans) In cases where the below transaction is successful
+        # but the Logical_Switch_Port create or update transaction fails
+        # we need to delete the DHCP_Options row created else it will be
+        # an orphan row.
+        subnet_dhcp_options['options'].update(lsp_dhcpv4_options)
+        subnet_dhcp_options['external_ids'].update(
+            {'port_id': port['id']})
+        with self._nb_ovn.transaction(check_error=True) as txn:
+            txn.add(self._nb_ovn.add_dhcp_options(
+                subnet_id, port_id=port['id'],
+                cidr=subnet_dhcp_options['cidr'],
+                options=subnet_dhcp_options['options'],
+                external_ids=subnet_dhcp_options['external_ids']))
+
+        return self._nb_ovn.get_port_dhcp_options(subnet_id, port['id'])
 
     def delete_port_postcommit(self, context):
         """Delete a port.
@@ -634,13 +876,27 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
             txn.add(self._nb_ovn.delete_acl(
                     utils.ovn_name(port['network_id']), port['id']))
 
-        admin_context = n_context.get_admin_context()
-        sg_ids = port.get('security_groups', [])
-        num_fixed_ips = len(port.get('fixed_ips'))
-        if num_fixed_ips:
-            for sg_id in sg_ids:
-                ovn_acl.refresh_remote_security_group(
-                    self._plugin, admin_context, self._nb_ovn, sg_id)
+            if port.get('fixed_ips'):
+                addresses = ovn_acl.acl_port_ips(port)
+                for sg_id in port.get('security_groups', []):
+                    for ip_version in addresses:
+                        if addresses[ip_version]:
+                            txn.add(self._nb_ovn.update_address_set(
+                                name=utils.ovn_addrset_name(sg_id, ip_version),
+                                addrs_add=None,
+                                addrs_remove=addresses[ip_version]))
+
+                # Delete the DHCP_Options row if created for this port.
+                # A separate DHCP_Options row would have be created if the port
+                # has extra DHCP options defined.
+                for fixed_ip in port['fixed_ips']:
+                    if netaddr.IPAddress(fixed_ip['ip_address']).version == 4:
+                        lsp_dhcp_options = self._nb_ovn.get_port_dhcp_options(
+                            fixed_ip['subnet_id'], port['id'])
+                        if lsp_dhcp_options:
+                            txn.add(self._nb_ovn.delete_dhcp_options(
+                                lsp_dhcp_options['uuid']))
+                            break
 
     def bind_port(self, context):
         """Attempt to bind a port.
@@ -711,7 +967,7 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
     def set_port_status_up(self, port_id):
         # Port provisioning is complete now that OVN has reported
         # that the port is up.
-        LOG.debug("OVN reports status up for port: %s", port_id)
+        LOG.info(_LI("OVN reports status up for port: %s"), port_id)
         provisioning_blocks.provisioning_complete(
             n_context.get_admin_context(),
             port_id,
@@ -719,7 +975,7 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
             provisioning_blocks.L2_AGENT_ENTITY)
 
     def set_port_status_down(self, port_id):
-        LOG.debug("OVN reports status down for port: %s", port_id)
+        LOG.info(_LI("OVN reports status down for port: %s"), port_id)
         self._plugin.update_port_status(n_context.get_admin_context(),
                                         port_id,
                                         const.PORT_STATUS_DOWN)
@@ -739,3 +995,14 @@ class OVNMechanismDriver(driver_api.MechanismDriver):
 
         segment_service_db.update_segment_host_mapping(
             ctx, host, available_seg_ids)
+
+    def _add_segment_host_mapping_for_segment(self, resource, event, trigger,
+                                              context, segment):
+        phynet = segment.physical_network
+        if not phynet:
+            return
+
+        host_phynets_map = self._sb_ovn.get_chassis_hostname_and_physnets()
+        hosts = {host for host, phynets in six.iteritems(host_phynets_map)
+                 if phynet in phynets}
+        segment_service_db.map_segment_to_hosts(context, segment.id, hosts)

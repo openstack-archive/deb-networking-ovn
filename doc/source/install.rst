@@ -44,9 +44,10 @@ the RDO project.  A package based on the ``master`` branch of
 
 Fedora and CentOS RPM builds of OVS and OVN from the ``master`` branch of
 ``ovs`` can be found in this COPR repository:
-https://copr.fedorainfracloud.org/coprs/pmatilai/dpdk-snapshot/.  Note that
-this repository contains OVS built with DPDK support, but that should have no
-effect unless you choose to enable the use of DPDK.
+https://copr.fedorainfracloud.org/coprs/leifmadsen/ovs-master/.  If you would
+like packages that are built with DPDK integration enabled, you can try this
+COPR repository, instead:
+https://copr.fedorainfracloud.org/coprs/pmatilai/dpdk-snapshot/.
 
 Controller nodes
 ----------------
@@ -171,6 +172,7 @@ primary node. See the :ref:`faq` for more information.
         type_drivers = local,flat,vlan,geneve
         tenant_network_types = geneve
         extension_drivers = port_security
+        overlay_ip_version = 4
 
     .. note::
 
@@ -178,15 +180,20 @@ primary node. See the :ref:`faq` for more information.
        ``tenant_network_types`` option. The first network type
        in the list becomes the default self-service network type.
 
-   * Configure the Geneve ID range and maximum header size. IPv4 and IPv6
-     endpoints should use a header size of 58 and 78 bytes, respectively.
+       To use IPv6 for all overlay (tunnel) network endpoints,
+       set the ``overlay_ip_version`` option to ``6``.
+
+   * Configure the Geneve ID range and maximum header size. The IP version
+     overhead (20 bytes for IPv4 (default) or 40 bytes for IPv6) is added
+     to the maximum header size based on the ML2 ``overlay_ip_version``
+     option.
 
      .. code-block:: ini
 
         [ml2_type_geneve]
         ...
         vni_ranges = 1:65536
-        max_header_size = 58
+        max_header_size = 38
 
      .. note::
 
@@ -236,7 +243,8 @@ primary node. See the :ref:`faq` for more information.
         The ``firewall_driver`` option under ``[securitygroup]`` is ignored
         since the OVN ML2 driver itself handles security groups.
 
-   * Configure OVS database access and the OVN L3 mode
+   * Configure OVS database access, the OVN L3 mode and scheduler, and
+     the OVN DHCP mode
 
      .. code-block:: ini
 
@@ -245,25 +253,34 @@ primary node. See the :ref:`faq` for more information.
         ovn_nb_connection = tcp:IP_ADDRESS:6641
         ovn_sb_connection = tcp:IP_ADDRESS:6642
         ovn_l3_mode = OVN_L3_MODE
+        ovn_l3_scheduler = OVN_L3_SCHEDULER
+        ovn_native_dhcp = OVN_NATIVE_DHCP
 
      .. note::
 
         Replace ``IP_ADDRESS`` with the IP address of the controller node
         that runs the ``ovsdb-server`` service. Replace ``OVN_L3_MODE``
         with ``True`` if you enabled the native layer-3 service in
-        ``/etc/neutron/neutron.conf`` else ``False``.
+        ``/etc/neutron/neutron.conf`` else ``False``. The ovn_l3_scheduler
+        value is only valid if ovn_l3_mode is set to ``True``. Replace
+        ``OVN_L3_SCHEDULER`` with ``leastloaded`` if you want the scheduler
+        to select a compute node with the least number of gateway routers
+        or ``chance`` if you want the scheduler to randomly select a compute
+        node from the available list of compute nodes. And finally, replace
+        ``OVN_NATIVE_DHCP`` with ``True`` if you want to enable the native
+        DHCP service else ``False`` to use the conventional DHCP agent.
 
 #. Start the ``neutron-server`` service.
 
 Network nodes
 -------------
 
-Deployments using native layer-3 services do not require conventional
-network nodes because connectivity to external networks (including VTEP
-gateways) and routing occurs on compute nodes. OVN currently relies on
-conventional DHCP and metadata agents that typically operate on network
-nodes. However, you can deploy these agents on controller or compute
-nodes.
+Deployments using OVN native layer-3 and DHCP services do not require
+conventional network nodes because connectivity to external networks
+(including VTEP gateways) and routing occurs on compute nodes.
+OVN currently relies on the conventional metadata agent that typically
+operates on network nodes. However, you can deploy this agent on
+controller or compute nodes.
 
 Compute nodes
 -------------

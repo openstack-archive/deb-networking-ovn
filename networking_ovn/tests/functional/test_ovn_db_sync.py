@@ -13,14 +13,19 @@
 #    under the License.
 
 import mock
+import six
 import uuid
 
+from networking_ovn.common import acl as acl_utils
 from networking_ovn.common import constants as ovn_const
+from networking_ovn.common import utils
 from networking_ovn import ovn_db_sync
 from networking_ovn.ovsdb import commands as cmd
 from networking_ovn.tests.functional import base
 from neutron.agent.ovsdb.native import idlutils
 from neutron import context
+from neutron import manager
+from neutron.services.segments import db as segments_db
 from neutron.tests.unit.api import test_extensions
 from neutron.tests.unit.extensions import test_extraroute
 
@@ -36,11 +41,16 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
         self.create_lrouters = []
         self.create_lrouter_ports = []
         self.create_lrouter_routes = []
+        self.create_acls = []
         self.delete_lswitches = []
         self.delete_lswitch_ports = []
         self.delete_lrouters = []
         self.delete_lrouter_ports = []
         self.delete_lrouter_routes = []
+        self.delete_acls = []
+        self.create_address_sets = []
+        self.delete_address_sets = []
+        self.update_address_sets = []
 
     def _create_resources(self):
         n1 = self._make_network(self.fmt, 'n1', True)
@@ -50,10 +60,17 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
         for p in ['p1', 'p2', 'p3']:
             port = self._make_port(self.fmt, n1['network']['id'],
                                    name='n1-' + p)
-            if p == 'p2':
-                self.delete_lswitch_ports.append(
-                    (port['port']['id'], 'neutron-' + n1['network']['id'])
-                )
+            lport_name = port['port']['id']
+            lswitch_name = 'neutron-' + n1['network']['id']
+            if p == 'p1':
+                fake_subnet = {'cidr': '11.11.11.11/24'}
+                dhcp_acls = acl_utils.add_acl_dhcp(port['port'], fake_subnet)
+                for dhcp_acl in dhcp_acls:
+                    self.create_acls.append(dhcp_acl)
+            elif p == 'p2':
+                self.delete_lswitch_ports.append((lport_name, lswitch_name))
+            elif p == 'p3':
+                self.delete_acls.append((lport_name, lswitch_name))
 
         n2 = self._make_network(self.fmt, 'n2', True)
         res = self._create_subnet(self.fmt, n2['network']['id'],
@@ -108,12 +125,23 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
                                           'neutron-' + r1['id']))
         self.delete_lrouters.append('neutron-' + r2['id'])
 
+        address_set_name = n1_p4['port']['security_groups'][0]
+        self.create_address_sets.extend([('fake_sg', 'ip4'),
+                                         ('fake_sg', 'ip6')])
+        self.delete_address_sets.append((address_set_name, 'ip6'))
+        address_adds = ['10.0.0.101', '10.0.0.102']
+        address_dels = []
+        for address in n1_p4['port']['fixed_ips']:
+            address_dels.append(address['ip_address'])
+        self.update_address_sets.append((address_set_name, 'ip4',
+                                         address_adds, address_dels))
+
     def _modify_resources_in_nb_db(self):
         fake_api = mock.MagicMock()
         fake_api.idl = self.monitor_nb_db_idl
         fake_api._tables = self.monitor_nb_db_idl.tables
 
-        with self.idl_transaction(fake_api, check_error=True) as txn:
+        with self.nb_idl_transaction(fake_api, check_error=True) as txn:
             for lswitch_name in self.create_lswitches:
                 external_ids = {ovn_const.OVN_NETWORK_NAME_EXT_ID_KEY:
                                 lswitch_name}
@@ -159,6 +187,29 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
             for lrouter_name, ip_prefix, nexthop in self.delete_lrouter_routes:
                 txn.add(cmd.DelStaticRouteCommand(fake_api, lrouter_name,
                                                   ip_prefix, nexthop, True))
+
+            for acl in self.create_acls:
+                txn.add(cmd.AddACLCommand(fake_api, **acl))
+
+            for lport_name, lswitch_name in self.delete_acls:
+                txn.add(cmd.DelACLCommand(fake_api, lswitch_name,
+                                          lport_name, True))
+
+            for name, ip_version in self.create_address_sets:
+                ovn_name = utils.ovn_addrset_name(name, ip_version)
+                external_ids = {ovn_const.OVN_SG_NAME_EXT_ID_KEY: name}
+                txn.add(cmd.AddAddrSetCommand(fake_api, ovn_name, True,
+                                              external_ids=external_ids))
+
+            for name, ip_version in self.delete_address_sets:
+                ovn_name = utils.ovn_addrset_name(name, ip_version)
+                txn.add(cmd.DelAddrSetCommand(fake_api, ovn_name,
+                                              True))
+
+            for name, ip_version, ip_adds, ip_dels in self.update_address_sets:
+                ovn_name = utils.ovn_addrset_name(name, ip_version)
+                txn.add(cmd.UpdateAddrSetCommand(fake_api, ovn_name,
+                                                 ip_adds, ip_dels, True))
 
     def _validate_networks(self, should_match=True):
         db_networks = self._list('networks')
@@ -212,6 +263,56 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
             self.assertRaises(
                 AssertionError, self.assertItemsEqual, db_port_ids,
                 monitor_lport_ids)
+
+    def _build_acl_to_compare(self, acl):
+        acl_to_compare = {}
+        for acl_key in six.iterkeys(getattr(acl, "_data", {})):
+            try:
+                acl_to_compare[acl_key] = getattr(acl, acl_key)
+            except AttributeError:
+                pass
+        return acl_to_compare
+
+    def _validate_acls(self, should_match=True):
+        # Get the neutron DB ACLs.
+        db_acls = []
+        sg_cache = {}
+        subnet_cache = {}
+        for db_port in self._list('ports')['ports']:
+            acls = acl_utils.add_acls(self.plugin,
+                                      context.get_admin_context(),
+                                      db_port,
+                                      sg_cache,
+                                      subnet_cache)
+            for acl in acls:
+                acl.pop('lport')
+                acl.pop('lswitch')
+                db_acls.append(acl)
+
+        # Get the list of ACLs stored in the OVN plugin IDL.
+        _plugin_nb_ovn = self.mech_driver._nb_ovn
+        plugin_acls = []
+        for row in _plugin_nb_ovn._tables['Logical_Switch'].rows.values():
+            for acl in getattr(row, 'acls', []):
+                plugin_acls.append(self._build_acl_to_compare(acl))
+
+        # Get the list of ACLs stored in the OVN monitor IDL.
+        monitor_nb_ovn = self.monitor_nb_db_idl
+        monitor_acls = []
+        for row in monitor_nb_ovn.tables['Logical_Switch'].rows.values():
+            for acl in getattr(row, 'acls', []):
+                monitor_acls.append(self._build_acl_to_compare(acl))
+
+        if should_match:
+            self.assertItemsEqual(db_acls, plugin_acls)
+            self.assertItemsEqual(db_acls, monitor_acls)
+        else:
+            self.assertRaises(
+                AssertionError, self.assertItemsEqual,
+                db_acls, plugin_acls)
+            self.assertRaises(
+                AssertionError, self.assertItemsEqual,
+                db_acls, monitor_acls)
 
     def _validate_routers_and_router_ports(self, should_match=True):
         db_routers = self._list('routers')
@@ -300,18 +401,51 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
                     AssertionError, self.assertItemsEqual, r_routes,
                     monitor_routes)
 
+    def _validate_address_sets(self, should_match=True):
+        db_ports = self._list('ports')['ports']
+        db_sgs = {}
+        for port in db_ports:
+            sg_ids = port.get('security_groups', [])
+            addresses = acl_utils.acl_port_ips(port)
+            for sg_id in sg_ids:
+                for ip_version in addresses:
+                    name = utils.ovn_addrset_name(sg_id, ip_version)
+                    addr_list = db_sgs.setdefault(name, [])
+                    addr_list.extend(addresses[ip_version])
+
+        _plugin_nb_ovn = self.mech_driver._nb_ovn
+        nb_address_sets = _plugin_nb_ovn.get_address_sets()
+        nb_sgs = {}
+        for nb_sgid, nb_values in six.iteritems(nb_address_sets):
+            nb_sgs[nb_sgid] = nb_values['addresses']
+        mn_sgs = {}
+        for row in self.monitor_nb_db_idl.tables['Address_Set'].rows.values():
+            mn_sgs[getattr(row, 'name')] = getattr(row, 'addresses')
+
+        if should_match:
+            self.assertItemsEqual(nb_sgs, db_sgs)
+            self.assertItemsEqual(mn_sgs, db_sgs)
+        else:
+            self.assertRaises(AssertionError, self.assertItemsEqual,
+                              nb_sgs, db_sgs)
+            self.assertRaises(AssertionError, self.assertItemsEqual,
+                              mn_sgs, db_sgs)
+
     def _validate_resources(self, should_match=True):
         self._validate_networks(should_match=should_match)
         self._validate_ports(should_match=should_match)
+        self._validate_acls(should_match=should_match)
         self._validate_routers_and_router_ports(should_match=should_match)
+        self._validate_address_sets(should_match=should_match)
 
     def _sync_resources(self, mode):
-        # TODO(numans) - Need to sync ACLs
         nb_synchronizer = ovn_db_sync.OvnNbSynchronizer(
             self.plugin, self.mech_driver._nb_ovn, mode, self.mech_driver)
 
         ctx = context.get_admin_context()
+        nb_synchronizer.sync_address_sets(ctx)
         nb_synchronizer.sync_networks_and_ports(ctx)
+        nb_synchronizer.sync_acls(ctx)
         nb_synchronizer.sync_routers_and_rports(ctx)
 
     def _test_ovn_nb_sync_helper(self, mode, modify_resources=True,
@@ -349,3 +483,88 @@ class TestOvnNbSync(base.TestOVNFunctionalBase):
 
     def test_ovn_nb_sync_off(self):
         self._test_ovn_nb_sync_helper('off', should_match_after_sync=False)
+
+
+class TestOvnSbSync(base.TestOVNFunctionalBase):
+
+    def setUp(self):
+        super(TestOvnSbSync, self).setUp(ovn_worker=False)
+        self.segments_plugin = manager.NeutronManager.get_service_plugins(
+            ).get('segments')
+        self.sb_synchronizer = ovn_db_sync.OvnSbSynchronizer(
+            self.plugin, self.mech_driver._sb_ovn, self.mech_driver)
+        self.ctx = context.get_admin_context()
+
+    def get_additional_service_plugins(self):
+        return {'segments': 'neutron.services.segments.plugin.Plugin'}
+
+    def _sync_resources(self):
+        self.sb_synchronizer.sync_hostname_and_physical_networks(self.ctx)
+
+    def create_segment(self, network_id, physical_network, segmentation_id):
+        segment_data = {'network_id': network_id,
+                        'physical_network': physical_network,
+                        'segmentation_id': segmentation_id,
+                        'network_type': 'vlan'}
+        return self.segments_plugin.create_segment(
+            self.ctx, segment={'segment': segment_data})
+
+    def test_ovn_sb_sync_add_new_host(self):
+        with self.network() as network:
+            network_id = network['network']['id']
+        self.create_segment(network_id, 'physnet1', 50)
+        self.add_fake_chassis('host1', ['physnet1'])
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertFalse(segment_hosts)
+        self._sync_resources()
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertEqual({'host1'}, segment_hosts)
+
+    def test_ovn_sb_sync_update_existing_host(self):
+        with self.network() as network:
+            network_id = network['network']['id']
+        segment = self.create_segment(network_id, 'physnet1', 50)
+        segments_db.update_segment_host_mapping(
+            self.ctx, 'host1', {segment['id']})
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertEqual({'host1'}, segment_hosts)
+        self.add_fake_chassis('host1', ['physnet2'])
+        self._sync_resources()
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertFalse(segment_hosts)
+
+    def test_ovn_sb_sync_delete_stale_host(self):
+        with self.network() as network:
+            network_id = network['network']['id']
+        segment = self.create_segment(network_id, 'physnet1', 50)
+        segments_db.update_segment_host_mapping(
+            self.ctx, 'host1', {segment['id']})
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertEqual({'host1'}, segment_hosts)
+        # Since there is no chassis in the sb DB, host1 is the stale host
+        # recorded in neutron DB. It should be deleted after sync.
+        self._sync_resources()
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertFalse(segment_hosts)
+
+    def test_ovn_sb_sync(self):
+        with self.network() as network:
+            network_id = network['network']['id']
+        seg1 = self.create_segment(network_id, 'physnet1', 50)
+        self.create_segment(network_id, 'physnet2', 51)
+        segments_db.update_segment_host_mapping(
+            self.ctx, 'host1', {seg1['id']})
+        segments_db.update_segment_host_mapping(
+            self.ctx, 'host2', {seg1['id']})
+        segments_db.update_segment_host_mapping(
+            self.ctx, 'host3', {seg1['id']})
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        self.assertEqual({'host1', 'host2', 'host3'}, segment_hosts)
+        self.add_fake_chassis('host2', ['physnet2'])
+        self.add_fake_chassis('host3', ['physnet3'])
+        self.add_fake_chassis('host4', ['physnet1'])
+        self._sync_resources()
+        segment_hosts = segments_db.get_hosts_mapped_with_segments(self.ctx)
+        # host1 should be cleared since it is not in the chassis DB. host3
+        # should be cleared since there is no segment for mapping.
+        self.assertEqual({'host2', 'host4'}, segment_hosts)

@@ -1,4 +1,4 @@
-networking-ovn (1.0.0~b3-1) UNRELEASED; urgency=medium
+networking-ovn (1.0.0~b3-0ubuntu1) UNRELEASED; urgency=medium
 
   * New upstream release.
   * Align (Build-)Depends with upstream.

@@ -1,0 +1,10 @@
+Code-Review+1: Babu Shanmugam <bschanmu@redhat.com>
+Code-Review+2: Richard Theis <rtheis@us.ibm.com>
+Code-Review+2: Russell Bryant <rbryant@redhat.com>
+Workflow+1: Russell Bryant <rbryant@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 06 Sep 2016 13:55:20 +0000
+Reviewed-on: https://review.openstack.org/365814
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

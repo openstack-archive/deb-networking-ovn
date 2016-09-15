@@ -1,0 +1,10 @@
+Code-Review+2: Richard Theis <rtheis@us.ibm.com>
+Code-Review+1: Amitabha Biswas <azbiswas@gmail.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 14 Sep 2016 18:32:34 +0000
+Reviewed-on: https://review.openstack.org/366536
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

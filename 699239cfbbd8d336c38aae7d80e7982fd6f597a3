@@ -1,0 +1,9 @@
+Code-Review+2: Russell Bryant <rbryant@redhat.com>
+Code-Review+2: Han Zhou <zhouhan@gmail.com>
+Workflow+1: Han Zhou <zhouhan@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 22 Sep 2016 12:47:28 +0000
+Reviewed-on: https://review.openstack.org/352999
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

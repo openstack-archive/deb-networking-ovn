@@ -56,7 +56,6 @@ class TestOVNMechanismDriver(test_plugin.Ml2PluginV2TestCase):
         super(TestOVNMechanismDriver, self).setUp()
         mm = manager.NeutronManager.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers['ovn'].obj
-        self.mech_driver.initialize()
         self.mech_driver._nb_ovn = fakes.FakeOvsdbNbOvnIdl()
         self.mech_driver._sb_ovn = fakes.FakeOvsdbSbOvnIdl()
         self.nb_ovn = self.mech_driver._nb_ovn
@@ -376,19 +375,41 @@ class TestOVNMechanismDriver(test_plugin.Ml2PluginV2TestCase):
             [fakes.FakeSegment.create_one_segment(attrs=segment_attrs).info()]
         return fakes.FakeNetworkContext(fake_network, fake_segments)
 
-    def test_create_network_precommit(self):
+    def _create_fake_mp_network_context(self):
+        network_type = 'flat'
+        network_attrs = {'segments': []}
+        fake_segments = []
+        for physical_network in ['physnet1', 'physnet2']:
+            network_attrs['segments'].append(
+                {'provider:network_type': network_type,
+                 'provider:physical_network': physical_network})
+            segment_attrs = {'network_type': network_type,
+                             'physical_network': physical_network}
+            fake_segments.append(
+                fakes.FakeSegment.create_one_segment(
+                    attrs=segment_attrs).info())
+        fake_network = \
+            fakes.FakeNetwork.create_one_network(attrs=network_attrs).info()
+        fake_network.pop('provider:network_type')
+        fake_network.pop('provider:physical_network')
+        fake_network.pop('provider:segmentation_id')
+        return fakes.FakeNetworkContext(fake_network, fake_segments)
+
+    def test_network_precommit(self):
         # Test supported network types.
         fake_network_context = self._create_fake_network_context('local')
         self.mech_driver.create_network_precommit(fake_network_context)
         fake_network_context = self._create_fake_network_context(
             'flat', physical_network='physnet')
-        self.mech_driver.create_network_precommit(fake_network_context)
+        self.mech_driver.update_network_precommit(fake_network_context)
         fake_network_context = self._create_fake_network_context(
             'geneve', segmentation_id=10)
         self.mech_driver.create_network_precommit(fake_network_context)
         fake_network_context = self._create_fake_network_context(
             'vlan', physical_network='physnet', segmentation_id=11)
-        self.mech_driver.create_network_precommit(fake_network_context)
+        self.mech_driver.update_network_precommit(fake_network_context)
+        fake_mp_network_context = self._create_fake_mp_network_context()
+        self.mech_driver.create_network_precommit(fake_mp_network_context)
 
         # Test unsupported network types.
         fake_network_context = self._create_fake_network_context(
@@ -399,16 +420,7 @@ class TestOVNMechanismDriver(test_plugin.Ml2PluginV2TestCase):
         fake_network_context = self._create_fake_network_context(
             'gre', segmentation_id=13)
         self.assertRaises(n_exc.InvalidInput,
-                          self.mech_driver.create_network_precommit,
-                          fake_network_context)
-
-        # TODO(rtheis): Add support for multi-provider networks when
-        # routed networks are supported.
-        fake_network_context = self._create_fake_network_context('flat')
-        fake_network_context.current['segments'] = \
-            fake_network_context.network_segments
-        self.assertRaises(n_exc.InvalidInput,
-                          self.mech_driver.create_network_precommit,
+                          self.mech_driver.update_network_precommit,
                           fake_network_context)
 
     def test_create_port_without_security_groups(self):
@@ -557,7 +569,6 @@ class OVNMechanismDriverTestCase(test_plugin.Ml2PluginV2TestCase):
         super(OVNMechanismDriverTestCase, self).setUp()
         mm = manager.NeutronManager.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers['ovn'].obj
-        self.mech_driver.initialize()
         self.mech_driver._nb_ovn = fakes.FakeOvsdbNbOvnIdl()
         self.mech_driver._sb_ovn = fakes.FakeOvsdbSbOvnIdl()
         self.mech_driver._insert_port_provisioning_block = mock.Mock()
@@ -576,11 +587,7 @@ class TestOVNMechansimDriverV2HTTPResponse(test_plugin.TestMl2V2HTTPResponse,
 
 class TestOVNMechansimDriverNetworksV2(test_plugin.TestMl2NetworksV2,
                                        OVNMechanismDriverTestCase):
-
-    # TODO(rtheis): Add support for multi-provider networks when
-    # routed networks are supported.
-    def test_list_mpnetworks_with_segmentation_id(self):
-        pass
+    pass
 
 
 class TestOVNMechansimDriverSubnetsV2(test_plugin.TestMl2SubnetsV2,
@@ -654,7 +661,7 @@ class TestOVNMechansimDriverSegment(test_segment.HostSegmentMappingTestCase):
         self._test_create_segment(
             network_id=network['id'],
             segmentation_id=200,
-            network_type='vxlan')['segment']
+            network_type='geneve')['segment']
         self.mech_driver.update_segment_host_mapping(host, ['phys_net1'])
         segments_host_db = self._get_segments_for_host(host)
         self.assertEqual({segment1['id']}, set(segments_host_db))
@@ -711,12 +718,12 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
         super(TestOVNMechansimDriverDHCPOptions, self).tearDown()
         n_utils.get_random_mac = self.orig_get_random_mac
 
-    def _test__get_ovn_dhcp_options_helper(self, subnet, network,
-                                           expected_dhcp_options):
-        dhcp_options = self.mech_driver._get_ovn_dhcp_options(subnet, network)
+    def _test_get_ovn_dhcp_options_helper(self, subnet, network,
+                                          expected_dhcp_options):
+        dhcp_options = self.mech_driver.get_ovn_dhcp_options(subnet, network)
         self.assertEqual(expected_dhcp_options, dhcp_options)
 
-    def test__get_ovn_dhcp_options(self):
+    def test_get_ovn_dhcp_options(self):
         subnet = {'id': 'foo-subnet',
                   'cidr': '10.0.0.0/24',
                   'ip_version': 4,
@@ -740,10 +747,10 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
             '{20.0.0.4,10.0.0.100, 0.0.0.0/0,10.0.0.1}'
         }
 
-        self._test__get_ovn_dhcp_options_helper(subnet, network,
-                                                expected_dhcp_options)
+        self._test_get_ovn_dhcp_options_helper(subnet, network,
+                                               expected_dhcp_options)
 
-    def test__get_ovn_dhcp_options_dhcp_disabled(self):
+    def test_get_ovn_dhcp_options_dhcp_disabled(self):
         subnet = {'id': 'foo-subnet',
                   'cidr': '10.0.0.0/24',
                   'ip_version': 4,
@@ -758,10 +765,10 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
                                  'external_ids': {'subnet_id': 'foo-subnet'},
                                  'options': {}}
 
-        self._test__get_ovn_dhcp_options_helper(subnet, network,
-                                                expected_dhcp_options)
+        self._test_get_ovn_dhcp_options_helper(subnet, network,
+                                               expected_dhcp_options)
 
-    def test__get_ovn_dhcp_options_no_gw_ip(self):
+    def test_get_ovn_dhcp_options_no_gw_ip(self):
         subnet = {'id': 'foo-subnet',
                   'cidr': '10.0.0.0/24',
                   'ip_version': 4,
@@ -776,10 +783,10 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
                                  'external_ids': {'subnet_id': 'foo-subnet'},
                                  'options': {}}
 
-        self._test__get_ovn_dhcp_options_helper(subnet, network,
-                                                expected_dhcp_options)
+        self._test_get_ovn_dhcp_options_helper(subnet, network,
+                                               expected_dhcp_options)
 
-    def test__get_ovn_dhcp_options_ipv6_subnet(self):
+    def test_get_ovn_dhcp_options_ipv6_subnet(self):
         subnet = {'id': 'foo-subnet',
                   'cidr': 'ae70::/24',
                   'ip_version': 6,
@@ -790,12 +797,13 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
                                  'external_ids': {'subnet_id': 'foo-subnet'},
                                  'options': {}}
 
-        self._test__get_ovn_dhcp_options_helper(subnet, network,
-                                                expected_dhcp_options)
+        self._test_get_ovn_dhcp_options_helper(subnet, network,
+                                               expected_dhcp_options)
 
-    def test__get_port_dhcpv4_options_port_dhcp_opts_set(self):
+    def test_get_port_dhcpv4_options_port_dhcp_opts_set(self):
         port = {
             'id': 'foo-port',
+            'device_owner': 'compute:None',
             'fixed_ips': [{'subnet_id': 'foo-subnet',
                            'ip_address': '10.0.0.11'}],
             'extra_dhcp_opts': [{'ip_version': 4, 'opt_name': 'mtu',
@@ -809,7 +817,7 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
             'uuid': 'foo-uuid'}
 
         self.mech_driver._nb_ovn.get_port_dhcp_options.return_value = 'foo-val'
-        dhcpv4_options = self.mech_driver._get_port_dhcpv4_options(port)
+        dhcpv4_options = self.mech_driver.get_port_dhcpv4_options(port)
         self.assertEqual('foo-val', dhcpv4_options)
 
         # Since the port has extra DHCPv4 options defined, a new DHCP_Options
@@ -824,9 +832,10 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
         self.mech_driver._nb_ovn.add_dhcp_options.assert_called_once_with(
             'foo-subnet', port_id='foo-port', **expected_dhcp_options)
 
-    def test__get_port_dhcpv4_options_port_dhcp_opts_not_set(self):
+    def test_get_port_dhcpv4_options_port_dhcp_opts_not_set(self):
         port = {
             'id': 'foo-port',
+            'device_owner': 'compute:None',
             'fixed_ips': [{'subnet_id': 'foo-subnet',
                            'ip_address': '10.0.0.11'}]}
 
@@ -837,7 +846,7 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
             expected_dhcpv4_opts)
 
         self.assertEqual(expected_dhcpv4_opts,
-                         self.mech_driver._get_port_dhcpv4_options(port))
+                         self.mech_driver.get_port_dhcpv4_options(port))
 
         # Since the port has no extra DHCPv4 options defined, no new
         # DHCP_Options row should be created and logical switch port DHCPv4
@@ -845,16 +854,52 @@ class TestOVNMechansimDriverDHCPOptions(OVNMechanismDriverTestCase):
         self.mech_driver._nb_ovn.add_dhcp_options.assert_not_called()
         self.mech_driver._nb_ovn.get_port_dhcp_options.assert_not_called()
 
-    def test__get_port_dhcpv4_options_port_dhcp_disabled(self):
+    def test_get_port_dhcpv4_options_port_dhcp_disabled_1(self):
         port = {
             'id': 'foo-port',
+            'device_owner': 'compute:None',
             'fixed_ips': [{'subnet_id': 'foo-subnet',
                            'ip_address': '10.0.0.11'}],
             'extra_dhcp_opts': [{'ip_version': 4, 'opt_name': 'dhcp_disabled',
                                  'opt_value': 'True'}]
         }
 
-        self.assertIsNone(self.mech_driver._get_port_dhcpv4_options(port))
+        self.assertIsNone(self.mech_driver.get_port_dhcpv4_options(port))
+        self.mech_driver._nb_ovn.get_subnet_dhcp_options.assert_not_called()
+        self.mech_driver._nb_ovn.add_dhcp_options.assert_not_called()
+        self.mech_driver._nb_ovn.get_port_dhcp_options.assert_not_called()
+
+    def test_get_port_dhcpv4_options_port_dhcp_disabled_2(self):
+        port = {
+            'id': 'foo-port',
+            'device_owner': 'compute:None',
+            'fixed_ips': [{'subnet_id': 'foo-subnet',
+                           'ip_address': '10.0.0.11'}],
+            'extra_dhcp_opts': [{'ip_version': 4, 'opt_name': 'dhcp_disabled',
+                                 'opt_value': 'False'},
+                                {'ip_version': 6, 'opt_name': 'dhcp_disabled',
+                                 'opt_value': 'True'}]
+        }
+
+        expected_dhcpv4_opts = {
+            'cidr': '10.0.0.0/24', 'external_ids': {'subnet_id': 'foo-subnet'},
+            'options': {'router': '10.0.0.1', 'mtu': '1400'}}
+        self.mech_driver._nb_ovn.get_subnet_dhcp_options.return_value = (
+            expected_dhcpv4_opts)
+
+        self.assertEqual(expected_dhcpv4_opts,
+                         self.mech_driver.get_port_dhcpv4_options(port))
+        self.mech_driver._nb_ovn.add_dhcp_options.assert_not_called()
+        self.mech_driver._nb_ovn.get_port_dhcp_options.assert_not_called()
+
+    def test__get_port_dhcpv4_options_port_with_invalid_device_owner(self):
+        port = {
+            'id': 'foo-port',
+            'device_owner': 'neutron:router_interface',
+            'fixed_ips': ['fake']
+        }
+
+        self.assertIsNone(self.mech_driver.get_port_dhcpv4_options(port))
         self.mech_driver._nb_ovn.get_subnet_dhcp_options.assert_not_called()
         self.mech_driver._nb_ovn.add_dhcp_options.assert_not_called()
         self.mech_driver._nb_ovn.get_port_dhcp_options.assert_not_called()

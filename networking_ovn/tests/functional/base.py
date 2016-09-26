@@ -21,7 +21,7 @@ from oslo_config import cfg
 from oslo_log import log
 
 from neutron.agent.ovsdb import impl_idl
-from neutron.agent.ovsdb.native.commands import BaseCommand
+from neutron.agent.ovsdb.native import commands
 from neutron.agent.ovsdb.native import connection
 from neutron import manager
 from neutron.plugins.common import constants as service_constants
@@ -38,7 +38,7 @@ PLUGIN_NAME = ('networking_ovn.plugin.OVNPlugin')
 LOG = log.getLogger(__name__)
 
 
-class AddFakeChassisCommand(BaseCommand):
+class AddFakeChassisCommand(commands.BaseCommand):
     """Add a fake chassis in OVN SB DB for functional test."""
 
     def __init__(self, api, name, ip, **columns):
@@ -83,7 +83,6 @@ class TestOVNFunctionalBase(test_plugin.Ml2PluginV2TestCase):
         super(TestOVNFunctionalBase, self).setUp()
         mm = manager.NeutronManager.get_plugin().mechanism_manager
         self.mech_driver = mm.mech_drivers['ovn'].obj
-        self.mech_driver.initialize()
         mgr = manager.NeutronManager.get_instance()
         self.l3_plugin = mgr.get_service_plugins().get(
             service_constants.L3_ROUTER_NAT)
@@ -163,6 +162,7 @@ class TestOVNFunctionalBase(test_plugin.Ml2PluginV2TestCase):
         if self.ovn_worker:
             trigger.im_class = ovsdb_monitor.OvnWorker
             cfg.CONF.set_override('neutron_sync_mode', 'off', 'ovn')
+        trigger.im_class.__name__ = 'trigger'
 
         # mech_driver.post_fork_initialize creates the IDL connections
         self.mech_driver.post_fork_initialize(mock.ANY, mock.ANY, trigger)

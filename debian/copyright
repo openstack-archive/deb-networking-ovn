@@ -13,6 +13,7 @@ License: Apache-2.0
 
 Files: debian/*
 Copyright: (c) 2016, Canonical Ltd
+           (c) 2016, Thomas Goirand <zigo@debian.org>
 License: Apache-2.0
 
 License: Apache-2.0

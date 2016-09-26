@@ -3,6 +3,7 @@ Section: net
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: James Page <james.page@ubuntu.com>,
+           Thomas Goirand <zigo@debian.org>,
 Build-Depends: debhelper (>= 9),
                dh-python,
                openstack-pkg-tools,
@@ -22,6 +23,7 @@ Build-Depends-Indep: python-babel (>= 2.3.4),
                      python-oslotest (>= 1.10.0),
                      python-openvswitch (>= 2.5.0),
                      python-reno,
+                     python-retrying (>= 1.2.3),
                      python-six (>= 1.9.0),
                      python-testresources (>= 0.2.4),
                      python-testscenarios (>= 0.4),
@@ -30,9 +32,9 @@ Build-Depends-Indep: python-babel (>= 2.3.4),
                      subunit (>= 0.0.18),
                      testrepository (>= 0.0.18),
 Standards-Version: 3.9.8
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-networking-ovn -b debian/newton
+Vcs-Git: https://git.openstack.org/openstack/deb-networking-ovn.git
 Homepage: http://github.com/openstack/networking-ovn
-Vcs-Browser: https://anonscm.debian.org/gitweb/?p=openstack/networking-ovn.git;a=summary
-Vcs-Git: https://anonscm.debian.org/git/openstack/networking-ovn.git
 
 Package: python-networking-ovn
 Architecture: all
@@ -43,6 +45,7 @@ Depends: python-babel (>= 2.3.4),
          python-neutron-lib (>= 0.4.0),
          python-oslo.config (>= 1:3.14.0),
          python-openvswitch (>= 2.5.0),
+         python-retrying (>= 1.2.3),
          python-six (>= 1.9.0),
          ${misc:Depends},
          ${python:Depends},

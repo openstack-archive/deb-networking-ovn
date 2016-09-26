@@ -15,7 +15,7 @@ services:
 
   Native implementation or conventional layer-3 agent. The native
   implementation supports distributed routing. However, it currently lacks
-  support for floating IP addresses and NAT.
+  support for floating IP addresses, NAT, and the metadata proxy.
 
 * DHCP
 
@@ -31,6 +31,13 @@ services:
 
   OVN and networking-ovn may be used with OVS using either the Linux kernel
   datapath or the DPDK datapath.
+
+* Trunk driver
+
+  Uses OVN's functionality of parent port and port tagging to support trunk
+  service plugin. One has to enable the 'trunk' service plugin in neutron
+  configuration files to use this feature.
+
 
 The following Neutron API extensions are supported with OVN:
 
@@ -58,6 +65,8 @@ The following Neutron API extensions are supported with OVN:
 | HA Router extension *            | l3-ha                     |
 +----------------------------------+---------------------------+
 | L3 Agent Scheduler *             | l3_agent_scheduler        |
++----------------------------------+---------------------------+
+| Multi Provider Network           | multi-provider            |
 +----------------------------------+---------------------------+
 | Network Availability Zone **     | network_availability_zone |
 +----------------------------------+---------------------------+

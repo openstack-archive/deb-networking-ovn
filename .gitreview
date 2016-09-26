@@ -1,4 +1,5 @@
 [gerrit]
 host=review.openstack.org
 port=29418
-project=openstack/networking-ovn.git
+project=openstack/deb-networking-ovn.git
+defaultbranch=debian/newton

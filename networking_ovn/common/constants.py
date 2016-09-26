@@ -13,6 +13,7 @@
 from neutron.extensions import portbindings
 import six
 
+OVN_ML2_MECH_DRIVER_NAME = 'ovn'
 OVN_NETWORK_NAME_EXT_ID_KEY = 'neutron:network_name'
 OVN_PORT_NAME_EXT_ID_KEY = 'neutron:port_name'
 OVN_ROUTER_NAME_EXT_ID_KEY = 'neutron:router_name'
@@ -43,3 +44,11 @@ ACL_ACTION_ALLOW = 'allow'
 # the options column of the Logical Router. This value is used to detect
 # unhosted router gateways to schedule.
 OVN_GATEWAY_INVALID_CHASSIS = 'neutron-ovn-invalid-chassis'
+
+SUPPORTED_DHCP_OPTS = [
+    'netmask', 'router', 'dns-server', 'log-server',
+    'lpr-server', 'swap-server', 'ip-forward-enable',
+    'policy-filter', 'default-ttl', 'mtu', 'router-discovery',
+    'router-solicitation', 'arp-timeout', 'ethernet-encap',
+    'tcp-ttl', 'tcp-keepalive', 'nis-server', 'ntp-server',
+    'tftp-server']

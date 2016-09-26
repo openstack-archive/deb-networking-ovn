@@ -1,9 +1,17 @@
-networking-ovn (1.0.0~b3-1) UNRELEASED; urgency=medium
+networking-ovn (1.0.0~rc1-1) experimental; urgency=medium
 
+  [ James Page ]
   * New upstream release.
   * Align (Build-)Depends with upstream.
 
- -- James Page <james.page@ubuntu.com>  Fri, 02 Sep 2016 09:26:07 +0100
+  [ Thomas Goirand ]
+  * New upstream release.
+  * Fixed (build-)depends for this release.
+  * Added myself as uploader.
+  * Using OpenStack's Gerrit as VCS URLs.
+  * Added .gitreview and egg-info to extend-diff-ignore.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 26 Sep 2016 08:58:44 +0200
 
 networking-ovn (1.0.0~b2-1) experimental; urgency=medium
 

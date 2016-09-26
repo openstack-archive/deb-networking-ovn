@@ -31,8 +31,8 @@ Build-Depends-Indep: python-babel (>= 2.3.4),
                      testrepository (>= 0.0.18),
 Standards-Version: 3.9.8
 Homepage: http://github.com/openstack/networking-ovn
-Vcs-Browser: https://anonscm.debian.org/gitweb/?p=openstack/networking-ovn.git;a=summary
-Vcs-Git: https://anonscm.debian.org/git/openstack/networking-ovn.git
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-networking-ovn?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-networking-ovn -b debian/newton
 
 Package: python-networking-ovn
 Architecture: all

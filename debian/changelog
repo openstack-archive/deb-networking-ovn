@@ -1,7 +1,12 @@
 networking-ovn (1.0.0~b3-1) UNRELEASED; urgency=medium
 
+  [ James Page ]
   * New upstream release.
   * Align (Build-)Depends with upstream.
+
+  [ Ondřej Nový ]
+  * d/s/options: extend-diff-ignore of .gitreview
+  * d/control: Using OpenStack's Gerrit as VCS URLs.
 
  -- James Page <james.page@ubuntu.com>  Fri, 02 Sep 2016 09:26:07 +0100
 

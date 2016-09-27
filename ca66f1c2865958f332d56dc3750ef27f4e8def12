@@ -1,0 +1,8 @@
+Code-Review+2: Thomas Goirand <thomas@goirand.fr>
+Workflow+1: Thomas Goirand <thomas@goirand.fr>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 27 Sep 2016 13:30:56 +0000
+Reviewed-on: https://review.openstack.org/376227
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/debian/newton

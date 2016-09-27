@@ -1,0 +1,10 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Kyle Mestery <mestery@mestery.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 26 Sep 2016 22:30:19 +0000
+Reviewed-on: https://review.openstack.org/374454
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/stable/newton

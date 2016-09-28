@@ -11,6 +11,7 @@ networking-ovn (1.0.0~rc1-1) experimental; urgency=medium
   * Using OpenStack's Gerrit as VCS URLs.
   * Points .gitreview at deb-networking-ovn.
   * Added .gitreview and egg-info to extend-diff-ignore.
+  * Fixed oslotest EPOCH.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 26 Sep 2016 08:58:44 +0200
 

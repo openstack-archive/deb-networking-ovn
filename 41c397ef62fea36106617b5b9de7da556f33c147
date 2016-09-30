@@ -1,0 +1,9 @@
+Code-Review+2: Russell Bryant <rbryant@redhat.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 30 Sep 2016 17:01:37 +0000
+Reviewed-on: https://review.openstack.org/380185
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

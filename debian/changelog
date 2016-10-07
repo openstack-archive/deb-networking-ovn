@@ -1,4 +1,4 @@
-networking-ovn (1.0.0~rc1-1) experimental; urgency=medium
+networking-ovn (1.0.0-1) unstable; urgency=medium
 
   [ James Page ]
   * New upstream release.
@@ -6,6 +6,7 @@ networking-ovn (1.0.0~rc1-1) experimental; urgency=medium
 
   [ Thomas Goirand ]
   * New upstream release.
+  * Uploading to unstable.
   * Fixed (build-)depends for this release.
   * Added myself as uploader.
   * Using OpenStack's Gerrit as VCS URLs.

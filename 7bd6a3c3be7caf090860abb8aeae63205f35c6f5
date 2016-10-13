@@ -1,0 +1,9 @@
+Code-Review+2: Russell Bryant <rbryant@redhat.com>
+Code-Review+2: Richard Theis <rtheis@us.ibm.com>
+Workflow+1: Richard Theis <rtheis@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 12 Oct 2016 19:40:55 +0000
+Reviewed-on: https://review.openstack.org/385467
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

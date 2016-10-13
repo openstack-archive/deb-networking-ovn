@@ -1,0 +1,9 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Matthew Kassawara <mkassawara@gmail.com>
+Workflow+1: Matthew Kassawara <mkassawara@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 11 Oct 2016 21:11:35 +0000
+Reviewed-on: https://review.openstack.org/384650
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

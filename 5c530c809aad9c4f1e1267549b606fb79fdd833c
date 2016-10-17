@@ -1,0 +1,8 @@
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 14 Oct 2016 13:47:32 +0000
+Reviewed-on: https://review.openstack.org/386599
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/stable/newton

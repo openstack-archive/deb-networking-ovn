@@ -1,0 +1,10 @@
+Code-Review+2: Han Zhou <zhouhan@gmail.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Richard Theis <rtheis@us.ibm.com>
+Workflow+1: Richard Theis <rtheis@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 22 Oct 2016 13:46:04 +0000
+Reviewed-on: https://review.openstack.org/388192
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

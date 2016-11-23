@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: James Page <james.page@ubuntu.com>,
            Thomas Goirand <zigo@debian.org>,
-Build-Depends: debhelper (>= 9),
+Build-Depends: debhelper (>= 10),
                dh-python,
                openstack-pkg-tools,
                python-all,
@@ -32,8 +32,8 @@ Build-Depends-Indep: python-babel (>= 2.3.4),
                      subunit (>= 0.0.18),
                      testrepository (>= 0.0.18),
 Standards-Version: 3.9.8
-Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-networking-ovn -b debian/newton
-Vcs-Git: https://git.openstack.org/openstack/deb-networking-ovn.git
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-networking-ovn -b debian/newton?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-networking-ovn.git -b debian/newton
 Homepage: http://github.com/openstack/networking-ovn
 
 Package: python-networking-ovn

@@ -1,0 +1,9 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: Han Zhou <zhouhan@gmail.com>
+Workflow+1: Han Zhou <zhouhan@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 24 Jan 2017 08:24:44 +0000
+Reviewed-on: https://review.openstack.org/422701
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

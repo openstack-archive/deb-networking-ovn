@@ -1,0 +1,9 @@
+Code-Review+1: xurong00037997 <xu.rong@zte.com.cn>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 04 Feb 2017 04:59:45 +0000
+Reviewed-on: https://review.openstack.org/429123
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/stable/ocata

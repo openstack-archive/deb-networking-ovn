@@ -7,6 +7,7 @@ function get_ext_gw_interface {
     # This function is copied directly from the devstack neutron-legacy script
     if [[ "$Q_USE_PUBLIC_VETH" == "True" ]]; then
         echo $Q_PUBLIC_VETH_EX
+        
     else
         # Disable in-band as we are going to use local port
         # to communicate with VMs

@@ -1,0 +1,10 @@
+Code-Review+2: Numan Siddique <nusiddiq@redhat.com>
+Code-Review+1: Lucas Alvares Gomes <lucasagomes@gmail.com>
+Code-Review+2: Russell Bryant <rbryant@redhat.com>
+Workflow+1: Russell Bryant <rbryant@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 May 2017 14:20:00 +0000
+Reviewed-on: https://review.openstack.org/465839
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

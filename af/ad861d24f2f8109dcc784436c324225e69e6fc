@@ -1,0 +1,9 @@
+Code-Review+2: Numan Siddique <nusiddiq@redhat.com>
+Code-Review+2: Dong Jun <dongj@dtdream.com>
+Workflow+1: Dong Jun <dongj@dtdream.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 05 Jun 2017 03:09:31 +0000
+Reviewed-on: https://review.openstack.org/469677
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

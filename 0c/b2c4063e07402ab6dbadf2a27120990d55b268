@@ -1,0 +1,9 @@
+Code-Review+2: Numan Siddique <nusiddiq@redhat.com>
+Code-Review+2: Han Zhou <zhouhan@gmail.com>
+Workflow+1: Numan Siddique <nusiddiq@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 13 Jul 2017 06:01:47 +0000
+Reviewed-on: https://review.openstack.org/468449
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master

@@ -1,0 +1,10 @@
+Code-Review+1: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: Lucas Alvares Gomes <lucasagomes@gmail.com>
+Code-Review+2: Dong Jun <dongj@dtdream.com>
+Workflow+1: Dong Jun <dongj@dtdream.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 25 Jul 2017 11:12:40 +0000
+Reviewed-on: https://review.openstack.org/483767
+Project: openstack/deb-networking-ovn
+Branch: refs/heads/master
